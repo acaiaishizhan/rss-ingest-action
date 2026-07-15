@@ -2,6 +2,8 @@
 param(
     [string]$TaskName = "rss-local-feed-publisher",
     [string]$Distro = "Ubuntu-22.04",
+    [ValidateRange(1, 1440)]
+    [int]$IntervalMinutes = 10,
     [switch]$NoStart
 )
 
@@ -35,7 +37,7 @@ function Quote-TaskArgument {
 $EscapedWslExe = $WslExe -replace "'", "''"
 $EscapedDistro = $Distro -replace "'", "''"
 $EscapedPublisher = $PublisherWsl -replace "'", "''"
-$WslCommand = "& '$EscapedWslExe' -d '$EscapedDistro' -- /usr/bin/python3 '$EscapedPublisher'; exit `$LASTEXITCODE"
+$WslCommand = "& '$EscapedWslExe' -d '$EscapedDistro' -- /usr/bin/python3 '$EscapedPublisher' --once; exit `$LASTEXITCODE"
 $ActionArguments = @(
     "-NoProfile",
     "-NonInteractive",
@@ -50,11 +52,16 @@ $Action = New-ScheduledTaskAction `
     -Argument ($ActionArguments -join " ") `
     -WorkingDirectory $ProjectRoot
 
-$Trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$LogonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$PeriodicTrigger = New-ScheduledTaskTrigger `
+    -Once `
+    -At ((Get-Date).AddMinutes(1)) `
+    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 $Settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit ([TimeSpan]::Zero) `
-    -RestartCount 10 `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 20) `
+    -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `
@@ -67,10 +74,10 @@ $Principal = New-ScheduledTaskPrincipal `
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $Action `
-    -Trigger $Trigger `
+    -Trigger @($LogonTrigger, $PeriodicTrigger) `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Watch local private RSS snapshots in WSL, publish changed XML to GitHub, and dispatch rss-ingest." `
+    -Description "Publish local/private/Grok RSS snapshots every $IntervalMinutes minutes, then dispatch rss-ingest when data changed." `
     -Force | Out-Null
 
 if (-not $NoStart) {

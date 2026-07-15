@@ -22,6 +22,18 @@ from urllib.parse import unquote, urlparse
 
 LOGGER = logging.getLogger("local-feed-publisher")
 
+GROK_FEED_KEYS = (
+    "deals",
+    "rumors",
+    "cases",
+    "burst",
+    "tips",
+    "peers",
+    "resources",
+    "codex",
+    "claude",
+)
+
 
 class FeedValidationError(ValueError):
     """Raised when a candidate feed must not replace the last good snapshot."""
@@ -32,6 +44,17 @@ class SourceSpec:
     name: str
     source: str
     target: str
+
+
+def _path_as_file_uri(path: Path) -> str:
+    try:
+        return path.as_uri()
+    except ValueError:
+        # Windows pathlib treats a WSL path such as /mnt/f/... as drive-relative.
+        text = path.as_posix()
+        if text.startswith("/"):
+            return f"file://{text}"
+        raise
 
 
 @dataclass(frozen=True)
@@ -67,6 +90,21 @@ class PublisherConfig:
                 "/mnt/f/coding/we-mp-rss/data/db.db",
             )
         )
+        grok_feed_dir = Path(
+            os.getenv(
+                "GROK_RSS_SNAPSHOT_DIR",
+                "/mnt/f/coding/rss-ingest-local/data/grok-feeds",
+            )
+        )
+        grok_feed_paths = tuple(grok_feed_dir / f"{key}.xml" for key in GROK_FEED_KEYS)
+        grok_sources = tuple(
+            SourceSpec(
+                f"grok-{key}",
+                _path_as_file_uri(path),
+                f"feeds/grok/{key}.xml",
+            )
+            for key, path in zip(GROK_FEED_KEYS, grok_feed_paths)
+        )
         state_dir = Path(
             os.getenv(
                 "LOCAL_FEED_PUBLISHER_STATE_DIR",
@@ -93,13 +131,15 @@ class PublisherConfig:
                     os.getenv("WE_MP_RSS_FEED_URL", "http://127.0.0.1:8001/feed/all.rss").strip(),
                     "feeds/we-mp-rss.xml",
                 ),
-                SourceSpec("private-rss", private_feed.as_uri(), "feeds/private-rss.xml"),
+                SourceSpec("private-rss", _path_as_file_uri(private_feed), "feeds/private-rss.xml"),
+                *grok_sources,
             ),
             watch_paths=(
                 private_feed,
                 we_mp_db,
                 Path(f"{we_mp_db}-wal"),
                 Path(f"{we_mp_db}-shm"),
+                *grok_feed_paths,
             ),
             poll_seconds=max(1.0, float(os.getenv("LOCAL_FEED_PUBLISHER_POLL_SECONDS", "5"))),
             settle_seconds=max(0.0, float(os.getenv("LOCAL_FEED_PUBLISHER_SETTLE_SECONDS", "90"))),

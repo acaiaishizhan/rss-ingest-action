@@ -1024,6 +1024,36 @@ def entry_image_urls(entry: Optional[Dict[str, Any]], base_url: str = "") -> Lis
     return dedupe_strings(urls)
 
 
+def _clean_x_image_url(value: Any) -> str:
+    text = html.unescape(str(value or "")).strip()
+    if not text.startswith(("http://", "https://")):
+        return ""
+    path = urlparse(text).path.lower()
+    if path.endswith((".mp4", ".m3u8")):
+        return ""
+    if re.search(r"\.(?:png|jpe?g|webp|gif)$", path) or "pbs.twimg.com" in text.lower():
+        return text
+    return ""
+
+
+def _x_media_image_urls(tweet: Dict[str, Any]) -> List[str]:
+    media = tweet.get("media") or {}
+    urls: List[str] = []
+    for item in media.get("photos") or []:
+        if isinstance(item, dict):
+            urls.append(_clean_x_image_url(item.get("url")))
+    for item in media.get("videos") or []:
+        if isinstance(item, dict):
+            urls.append(_clean_x_image_url(item.get("thumbnail_url")))
+    for item in media.get("all") or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("type") or "").lower()
+        value = item.get("thumbnail_url") if kind in {"video", "gif", "animated_gif"} else item.get("url")
+        urls.append(_clean_x_image_url(value))
+    return dedupe_strings(url for url in urls if url)
+
+
 def fetch_x_media_urls(url: str) -> List[str]:
     handle, status_id = _x_status_ref(url)
     if not status_id:
@@ -1043,19 +1073,7 @@ def fetch_x_media_urls(url: str) -> List[str]:
     tweet = data.get("tweet") if isinstance(data, dict) and data.get("code") == 200 else None
     if not isinstance(tweet, dict):
         return []
-    media = tweet.get("media") or {}
-    urls: List[str] = []
-    for key in ("photos", "all"):
-        for item in media.get(key) or []:
-            if isinstance(item, dict) and item.get("url"):
-                urls.append(str(item["url"]))
-    for item in media.get("videos") or []:
-        if not isinstance(item, dict):
-            continue
-        thumb = item.get("thumbnail_url") or item.get("url")
-        if thumb:
-            urls.append(str(thumb))
-    return dedupe_strings(urls)
+    return _x_media_image_urls(tweet)
 
 
 def collect_article_image_urls(
@@ -4299,8 +4317,8 @@ def split_sources_and_queue(
                     "source": source.get("name") or source.get("feed_url"),
                     "extraction": extraction,
                 }
-                if is_aipoju_article(article):
-                    article["image_urls"] = collect_article_image_urls(article, entry=entry)
+                if is_aipoju_article(article) or is_x_article(article) or is_reddit_article(article):
+                    article["image_urls"] = entry_image_urls(entry, base_url=article["link"])
 
                 queue.append(
                     {
@@ -4366,8 +4384,8 @@ def split_sources_and_queue(
                 "source": source.get("name") or source.get("feed_url"),
                 "extraction": extraction,
             }
-            if is_aipoju_article(article):
-                article["image_urls"] = collect_article_image_urls(article, entry=entry)
+            if is_aipoju_article(article) or is_x_article(article) or is_reddit_article(article):
+                article["image_urls"] = entry_image_urls(entry, base_url=article["link"])
 
             queue.append(
                 {
