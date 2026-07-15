@@ -10,6 +10,7 @@ from tools.local_feed_publisher import (
     LocalFeedPublisher,
     PublisherConfig,
     SourceSpec,
+    feed_fingerprint,
     validate_feed_bytes,
     watch_signature,
 )
@@ -17,6 +18,8 @@ from tools.local_feed_publisher import (
 
 RSS_ONE = b"""<?xml version="1.0"?><rss><channel><item><guid>1</guid></item></channel></rss>"""
 RSS_TWO = b"""<?xml version="1.0"?><rss><channel><item><guid>2</guid></item></channel></rss>"""
+RSS_META_ONE = b"""<?xml version="1.0"?><rss><channel><lastBuildDate>one</lastBuildDate><item><guid>1</guid></item></channel></rss>"""
+RSS_META_TWO = b"""<?xml version="1.0"?><rss><channel><lastBuildDate>two</lastBuildDate><item><guid>1</guid></item></channel></rss>"""
 
 
 class FakeRunner:
@@ -61,6 +64,12 @@ def test_validate_feed_bytes_accepts_rss_and_atom() -> None:
     assert validate_feed_bytes(RSS_ONE) == 1
     atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>1</id></entry></feed>'
     assert validate_feed_bytes(atom) == 1
+
+
+def test_feed_fingerprint_ignores_feed_level_metadata() -> None:
+    assert RSS_META_ONE != RSS_META_TWO
+    assert feed_fingerprint(RSS_META_ONE) == feed_fingerprint(RSS_META_TWO)
+    assert feed_fingerprint(RSS_META_ONE) != feed_fingerprint(RSS_TWO)
 
 
 @pytest.mark.parametrize(
@@ -113,6 +122,24 @@ def test_sync_once_does_not_commit_or_dispatch_unchanged_feed(tmp_path: Path) ->
 
     assert result.changed == []
     assert result.dispatched is False
+    flattened = [call[0] for call in runner.calls]
+    assert not any(args[:2] == ["git", "commit"] for args in flattened)
+    assert not any(args[:3] == ["gh", "workflow", "run"] for args in flattened)
+
+
+def test_sync_once_ignores_metadata_only_feed_changes(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    target = config.data_repo_dir / "feeds/private-rss.xml"
+    target.parent.mkdir()
+    target.write_bytes(RSS_META_ONE)
+    runner = FakeRunner()
+    publisher = LocalFeedPublisher(config, runner=runner, source_reader=lambda source: RSS_META_TWO)
+
+    result = publisher.sync_once()
+
+    assert result.changed == []
+    assert result.dispatched is False
+    assert target.read_bytes() == RSS_META_ONE
     flattened = [call[0] for call in runner.calls]
     assert not any(args[:2] == ["git", "commit"] for args in flattened)
     assert not any(args[:3] == ["gh", "workflow", "run"] for args in flattened)

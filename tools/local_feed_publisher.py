@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -139,6 +140,22 @@ def validate_feed_bytes(payload: bytes) -> int:
     return item_count
 
 
+def feed_fingerprint(payload: bytes) -> str:
+    """Hash item/entry content while ignoring volatile feed-level metadata."""
+
+    validate_feed_bytes(payload)
+    root = ET.fromstring(payload)
+    root_name = _local_name(root.tag)
+    item_names = {"item"} if root_name in {"rss", "rdf"} else {"entry"}
+    digest = hashlib.sha256()
+    for element in root.iter():
+        if _local_name(element.tag) not in item_names:
+            continue
+        digest.update(ET.tostring(element, encoding="utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def watch_signature(paths: Iterable[Path]) -> Tuple[Tuple[str, int, int], ...]:
     signature = []
     for raw_path in paths:
@@ -271,8 +288,16 @@ class LocalFeedPublisher:
             try:
                 payload = self.source_reader(source)
                 item_count = validate_feed_bytes(payload)
-                if target.is_file() and target.read_bytes() == payload:
-                    continue
+                if target.is_file():
+                    existing = target.read_bytes()
+                    if existing == payload:
+                        continue
+                    try:
+                        if feed_fingerprint(existing) == feed_fingerprint(payload):
+                            LOGGER.info("unchanged items %s; ignored feed metadata update", source.name)
+                            continue
+                    except FeedValidationError:
+                        pass
                 target.parent.mkdir(parents=True, exist_ok=True)
                 temporary = target.with_suffix(f"{target.suffix}.tmp")
                 temporary.write_bytes(payload)
