@@ -1,0 +1,280 @@
+[
+  {
+    "id": "tp_company_cn_en_01",
+    "type": "org",
+    "input_keywords": ["NVIDIA", "英伟达", "AMD", "台积电"],
+    "expected_groups": [["NVIDIA", "英伟达"]],
+    "expected_non_groups": [["NVIDIA", "AMD"], ["英伟达", "台积电"]]
+  },
+  {
+    "id": "tp_company_cn_en_02",
+    "type": "org",
+    "input_keywords": ["Microsoft", "微软", "Google", "谷歌"],
+    "expected_groups": [["Microsoft", "微软"], ["Google", "谷歌"]],
+    "expected_non_groups": [["Microsoft", "Google"], ["微软", "谷歌"]]
+  },
+  {
+    "id": "tp_person_cn_en_01",
+    "type": "person",
+    "input_keywords": ["Jensen Huang", "黄仁勋", "老黄", "Sam Altman"],
+    "expected_groups": [["Jensen Huang", "黄仁勋", "老黄"]],
+    "expected_non_groups": [["Jensen Huang", "Sam Altman"], ["黄仁勋", "Sam Altman"]]
+  },
+  {
+    "id": "tp_person_cn_en_02",
+    "type": "person",
+    "input_keywords": ["Elon Musk", "马斯克", "Sundar Pichai", "皮查伊"],
+    "expected_groups": [["Elon Musk", "马斯克"], ["Sundar Pichai", "皮查伊"]],
+    "expected_non_groups": [["Elon Musk", "Sundar Pichai"], ["马斯克", "皮查伊"]]
+  },
+  {
+    "id": "tp_spacing_variant_01",
+    "type": "org",
+    "input_keywords": ["OpenAI", "Open AI", "Anthropic", "DeepMind"],
+    "expected_groups": [["OpenAI", "Open AI"]],
+    "expected_non_groups": [["OpenAI", "Anthropic"], ["Open AI", "DeepMind"]]
+  },
+  {
+    "id": "tp_product_variant_01",
+    "type": "product",
+    "input_keywords": ["ChatGPT", "Chat GPT", "Claude", "Gemini"],
+    "expected_groups": [["ChatGPT", "Chat GPT"]],
+    "expected_non_groups": [["ChatGPT", "Claude"], ["Chat GPT", "Gemini"]]
+  },
+  {
+    "id": "tp_product_variant_02",
+    "type": "product",
+    "input_keywords": ["Qwen", "通义千问", "Llama", "DeepSeek"],
+    "expected_groups": [["Qwen", "通义千问"]],
+    "expected_non_groups": [["Qwen", "Llama"], ["通义千问", "DeepSeek"]]
+  },
+  {
+    "id": "tp_transliteration_01",
+    "type": "person",
+    "input_keywords": ["Sam Altman", "奥特曼", "Dario Amodei", "达里奥"],
+    "expected_groups": [["Sam Altman", "奥特曼"], ["Dario Amodei", "达里奥"]],
+    "expected_non_groups": [["Sam Altman", "Dario Amodei"], ["奥特曼", "达里奥"]]
+  },
+  {
+    "id": "tp_transliteration_02",
+    "type": "product",
+    "input_keywords": ["Claude", "克劳德", "Gemini", "Grok"],
+    "expected_groups": [["Claude", "克劳德"]],
+    "expected_non_groups": [["Claude", "Gemini"], ["克劳德", "Grok"]]
+  },
+  {
+    "id": "tn_hierarchy_01",
+    "type": "org",
+    "input_keywords": ["Google", "Google DeepMind", "Alphabet"],
+    "expected_groups": [],
+    "expected_non_groups": [["Google", "Google DeepMind"], ["Google", "Alphabet"]]
+  },
+  {
+    "id": "tn_competitors_01",
+    "type": "org",
+    "input_keywords": ["OpenAI", "Anthropic", "xAI", "Mistral"],
+    "expected_groups": [],
+    "expected_non_groups": [["OpenAI", "Anthropic"], ["OpenAI", "xAI"], ["Anthropic", "Mistral"]]
+  },
+  {
+    "id": "tn_competitors_02",
+    "type": "product",
+    "input_keywords": ["ChatGPT", "Claude", "Gemini", "Grok"],
+    "expected_groups": [],
+    "expected_non_groups": [["ChatGPT", "Claude"], ["Gemini", "Grok"], ["Claude", "Gemini"]]
+  },
+  {
+    "id": "tn_version_01",
+    "type": "model",
+    "input_keywords": ["GPT-4", "GPT-5", "GPT-4o"],
+    "expected_groups": [],
+    "expected_non_groups": [["GPT-4", "GPT-5"], ["GPT-4", "GPT-4o"]]
+  },
+  {
+    "id": "tn_version_02",
+    "type": "model",
+    "input_keywords": ["Claude 3.5", "Claude 4", "Gemini 2.5"],
+    "expected_groups": [],
+    "expected_non_groups": [["Claude 3.5", "Claude 4"], ["Claude 3.5", "Gemini 2.5"]]
+  },
+  {
+    "id": "tn_related_not_alias_01",
+    "type": "technology",
+    "input_keywords": ["CUDA", "GPU", "Blackwell", "TPU"],
+    "expected_groups": [],
+    "expected_non_groups": [["CUDA", "GPU"], ["CUDA", "Blackwell"], ["GPU", "TPU"]]
+  },
+  {
+    "id": "tn_related_not_alias_02",
+    "type": "technology",
+    "input_keywords": ["Transformer", "LLM", "Attention", "MoE"],
+    "expected_groups": [],
+    "expected_non_groups": [["Transformer", "LLM"], ["Attention", "Transformer"], ["MoE", "LLM"]]
+  },
+  {
+    "id": "hard_rebrand_twitter_x_01",
+    "type": "org",
+    "input_keywords": ["Twitter", "X", "X Corp", "SpaceX", "xAI"],
+    "expected_groups": [["Twitter", "X", "X Corp"]],
+    "expected_non_groups": [["X", "SpaceX"], ["X", "xAI"], ["X Corp", "xAI"]]
+  },
+  {
+    "id": "hard_rebrand_facebook_meta_01",
+    "type": "org",
+    "input_keywords": ["Facebook", "Meta", "Meta Platforms", "Meta AI", "Instagram"],
+    "keyword_titles": {
+      "Facebook": ["Facebook改名Meta后市值变化", "扎克伯格宣布Facebook更名为Meta"],
+      "Meta": ["Meta发布Llama 4模型", "Meta股价创历史新高", "扎克伯格宣布Facebook更名为Meta"],
+      "Meta Platforms": ["Meta Platforms第四季度财报超预期", "Meta Platforms宣布裁员计划"],
+      "Meta AI": ["Meta AI推出新版AI助手", "Meta AI开源视觉语言模型"],
+      "Instagram": ["Instagram推出新创作者工具", "Instagram测试AI生成滤镜"]
+    },
+    "expected_groups": [["Facebook", "Meta", "Meta Platforms"]],
+    "expected_non_groups": [["Meta", "Meta AI"], ["Meta", "Instagram"], ["Facebook", "Instagram"]]
+  },
+  {
+    "id": "hard_rebrand_deepmind_01",
+    "type": "org",
+    "input_keywords": ["DeepMind", "Google DeepMind", "Google", "Google Brain", "Gemini"],
+    "expected_groups": [["DeepMind", "Google DeepMind"]],
+    "expected_non_groups": [["Google", "Google DeepMind"], ["Google Brain", "Google DeepMind"], ["Google DeepMind", "Gemini"]]
+  },
+  {
+    "id": "hard_cn_nickname_musk_01",
+    "type": "person",
+    "input_keywords": ["Elon Musk", "马斯克", "老马", "Sam Altman", "奥特曼"],
+    "keyword_titles": {
+      "Elon Musk": ["Elon Musk宣布xAI新一轮融资", "Musk称特斯拉将在2026年量产机器人"],
+      "马斯克": ["马斯克旗下xAI推出Grok 3", "马斯克回应欧盟AI监管"],
+      "老马": ["老马又发疯了：马斯克深夜连发十条推文炮轰OpenAI", "老马的星舰第五次试飞成功"],
+      "Sam Altman": ["Sam Altman谈GPT-5发布计划"],
+      "奥特曼": ["奥特曼称AGI三年内可实现"]
+    },
+    "expected_groups": [["Elon Musk", "马斯克", "老马"]],
+    "expected_non_groups": [["马斯克", "Sam Altman"], ["老马", "奥特曼"]]
+  },
+  {
+    "id": "hard_cn_nickname_liu_01",
+    "type": "person",
+    "input_keywords": ["刘强东", "Richard Liu", "强东哥", "雷军", "雷布斯"],
+    "keyword_titles": {
+      "刘强东": ["刘强东内部信：京东要回归低价策略", "刘强东直播带货首秀"],
+      "Richard Liu": ["Richard Liu steps back from JD.com daily operations"],
+      "强东哥": ["强东哥的AI数字人直播间日销千万", "强东哥回应京东裁员传闻"],
+      "雷军": ["雷军发布小米SU7 Ultra", "雷军称小米汽车明年交付30万台"],
+      "雷布斯": ["雷布斯又整活：雷军模仿乔布斯发布会引热议"]
+    },
+    "expected_groups": [["刘强东", "Richard Liu", "强东哥"]],
+    "expected_non_groups": [["刘强东", "雷军"], ["强东哥", "雷布斯"]]
+  },
+  {
+    "id": "hard_cn_nickname_leijun_01",
+    "type": "person",
+    "input_keywords": ["雷军", "Lei Jun", "雷布斯", "王传福"],
+    "keyword_titles": {
+      "雷军": ["雷军发布小米SU7 Ultra", "雷军年度演讲全文"],
+      "Lei Jun": ["Lei Jun unveils Xiaomi's humanoid robot strategy"],
+      "雷布斯": ["雷布斯又整活：雷军模仿乔布斯发布会引热议", "为什么叫雷布斯？雷军与乔布斯的风格对比"],
+      "王传福": ["王传福谈比亚迪出海战略"]
+    },
+    "expected_groups": [["雷军", "Lei Jun", "雷布斯"]],
+    "expected_non_groups": [["雷军", "王传福"], ["Lei Jun", "王传福"]]
+  },
+  {
+    "id": "hard_cn_nickname_zuckerberg_01",
+    "type": "person",
+    "input_keywords": ["Mark Zuckerberg", "扎克伯格", "小扎", "Sam Altman"],
+    "expected_groups": [["Mark Zuckerberg", "扎克伯格", "小扎"]],
+    "expected_non_groups": [["扎克伯格", "Sam Altman"], ["小扎", "Sam Altman"]]
+  },
+  {
+    "id": "hard_similar_name_anthropic_01",
+    "type": "org",
+    "input_keywords": ["Anthropic", "Anyscale", "Scale AI", "OpenAI"],
+    "expected_groups": [],
+    "expected_non_groups": [["Anthropic", "Anyscale"], ["Anyscale", "Scale AI"], ["Anthropic", "OpenAI"]]
+  },
+  {
+    "id": "hard_similar_name_mistral_01",
+    "type": "org",
+    "input_keywords": ["Mistral", "Mistral AI", "Mixtral", "Microsoft"],
+    "expected_groups": [["Mistral", "Mistral AI"]],
+    "expected_non_groups": [["Mistral AI", "Mixtral"], ["Mistral", "Microsoft"]]
+  },
+  {
+    "id": "hard_similar_name_stability_01",
+    "type": "org",
+    "input_keywords": ["Stability AI", "StabilityAI", "Runway", "Midjourney"],
+    "expected_groups": [["Stability AI", "StabilityAI"]],
+    "expected_non_groups": [["Stability AI", "Runway"], ["StabilityAI", "Midjourney"]]
+  },
+  {
+    "id": "hard_hardware_hopper_01",
+    "type": "hardware",
+    "input_keywords": ["H100", "Hopper", "H200", "A100", "Blackwell"],
+    "expected_groups": [["H100", "Hopper"]],
+    "expected_non_groups": [["H100", "H200"], ["Hopper", "Blackwell"], ["H100", "A100"]]
+  },
+  {
+    "id": "hard_hardware_ampere_01",
+    "type": "hardware",
+    "input_keywords": ["A100", "Ampere", "H100", "Hopper", "Ada Lovelace"],
+    "expected_groups": [["A100", "Ampere"]],
+    "expected_non_groups": [["A100", "H100"], ["Ampere", "Hopper"], ["Ampere", "Ada Lovelace"]]
+  },
+  {
+    "id": "hard_hardware_blackwell_01",
+    "type": "hardware",
+    "input_keywords": ["Blackwell", "B200", "B300", "GB200", "Hopper"],
+    "keyword_titles": {
+      "Blackwell": ["英伟达Blackwell架构GPU正式量产", "Blackwell芯片性能提升4倍"],
+      "B200": ["NVIDIA B200 GPU首批出货给微软和Meta", "B200是Blackwell架构首款数据中心GPU"],
+      "B300": ["英伟达预告B300将于2026年下半年发布"],
+      "GB200": ["GB200超级芯片整合两颗B200 GPU和一颗Grace CPU"],
+      "Hopper": ["Hopper架构H100仍是云端主力", "从Hopper到Blackwell：英伟达GPU路线图"]
+    },
+    "expected_groups": [["Blackwell", "B200"]],
+    "expected_non_groups": [["B200", "B300"], ["B200", "GB200"], ["Blackwell", "Hopper"]]
+  },
+  {
+    "id": "hard_policy_eu_ai_act_01",
+    "type": "policy",
+    "input_keywords": ["EU AI Act", "欧盟AI法案", "欧盟人工智能法案", "GDPR", "Digital Services Act"],
+    "expected_groups": [["EU AI Act", "欧盟AI法案", "欧盟人工智能法案"]],
+    "expected_non_groups": [["EU AI Act", "GDPR"], ["欧盟AI法案", "Digital Services Act"]]
+  },
+  {
+    "id": "hard_opensource_llama_01",
+    "type": "model",
+    "input_keywords": ["LLaMA", "Llama", "llama", "Llama 3", "Llama 4"],
+    "keyword_titles": {
+      "LLaMA": ["Meta开源LLaMA大语言模型", "LLaMA论文被引用超10万次"],
+      "Llama": ["Llama 4发布：Meta最新开源模型", "如何在本地部署Llama"],
+      "llama": ["ollama run llama最佳实践", "llama.cpp推理速度对比测试"],
+      "Llama 3": ["Llama 3性能超越GPT-3.5", "Meta发布Llama 3技术报告"],
+      "Llama 4": ["Llama 4发布：多模态+200k上下文", "Llama 4 vs GPT-5基准测试"]
+    },
+    "expected_groups": [["LLaMA", "Llama", "llama"]],
+    "expected_non_groups": [["Llama", "Llama 3"], ["Llama 3", "Llama 4"]]
+  },
+  {
+    "id": "hard_opensource_sd_01",
+    "type": "product",
+    "input_keywords": ["Stable Diffusion", "SD", "SDXL", "Midjourney"],
+    "keyword_titles": {
+      "Stable Diffusion": ["Stable Diffusion 3.5发布", "如何用Stable Diffusion生成高质量图片"],
+      "SD": ["SD模型对比：哪个版本画质最好", "本地部署SD的硬件要求"],
+      "SDXL": ["SDXL 1.0正式发布：支持1024分辨率", "SDXL与SD 1.5风格差异对比"],
+      "Midjourney": ["Midjourney V7发布", "Midjourney vs Stable Diffusion画质对比"]
+    },
+    "expected_groups": [["Stable Diffusion", "SD"]],
+    "expected_non_groups": [["SD", "SDXL"], ["Stable Diffusion", "Midjourney"]]
+  },
+  {
+    "id": "hard_opensource_hf_01",
+    "type": "org",
+    "input_keywords": ["Hugging Face", "HuggingFace", "HF", "Transformers", "ModelScope"],
+    "expected_groups": [["Hugging Face", "HuggingFace", "HF"]],
+    "expected_non_groups": [["Hugging Face", "Transformers"], ["HF", "ModelScope"]]
+  }
+]

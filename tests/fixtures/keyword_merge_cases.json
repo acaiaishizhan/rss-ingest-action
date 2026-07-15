@@ -1,0 +1,477 @@
+[
+  {
+    "case_id": "merge_claude_code_spacing",
+    "expected_decision": "merge",
+    "expected_canonical_id": "kw_claude_code",
+    "expected_merge_ids": ["kw_claudecode"],
+    "group": {
+      "group_id": "g_claude_code",
+      "candidates": [
+        {
+          "keyword_id": "kw_claude_code",
+          "name": "Claude Code",
+          "type": "product",
+          "aliases": [],
+          "news_count": 12,
+          "filtered_count": 3,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "Anthropic 发布 Claude Code 新功能",
+            "开发者比较 Claude Code 与 Codex"
+          ]
+        },
+        {
+          "keyword_id": "kw_claudecode",
+          "name": "claudecode",
+          "type": "product",
+          "aliases": [],
+          "news_count": 2,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T12:10:00+08:00",
+          "sample_titles": [
+            "claudecode 工作流演示"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "merge_gpt55_punctuation",
+    "expected_decision": "merge",
+    "expected_canonical_id": "kw_gpt55",
+    "expected_merge_ids": ["kw_gpt55_lower"],
+    "group": {
+      "group_id": "g_gpt55",
+      "candidates": [
+        {
+          "keyword_id": "kw_gpt55",
+          "name": "GPT-5.5",
+          "type": "model",
+          "aliases": [],
+          "news_count": 8,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "GPT-5.5 传闻引发模型能力讨论"
+          ]
+        },
+        {
+          "keyword_id": "kw_gpt55_lower",
+          "name": "gpt5.5",
+          "type": "model",
+          "aliases": [],
+          "news_count": 1,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T11:00:00+08:00",
+          "sample_titles": [
+            "gpt5.5 最新限制讨论"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_claude_vs_claude_code",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_claude_family",
+      "candidates": [
+        {
+          "keyword_id": "kw_claude",
+          "name": "Claude",
+          "type": "model",
+          "aliases": [],
+          "news_count": 20,
+          "filtered_count": 4,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "Claude 新模型能力更新"
+          ]
+        },
+        {
+          "keyword_id": "kw_claude_code",
+          "name": "Claude Code",
+          "type": "product",
+          "aliases": [],
+          "news_count": 12,
+          "filtered_count": 3,
+          "last_seen_at": "2026-05-11T13:20:00+08:00",
+          "sample_titles": [
+            "Claude Code 加入新工具调用能力"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_openai_vs_chatgpt",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_openai_chatgpt",
+      "candidates": [
+        {
+          "keyword_id": "kw_openai",
+          "name": "OpenAI",
+          "type": "org",
+          "aliases": [],
+          "news_count": 30,
+          "filtered_count": 5,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "OpenAI 宣布新的企业合作"
+          ]
+        },
+        {
+          "keyword_id": "kw_chatgpt",
+          "name": "ChatGPT",
+          "type": "product",
+          "aliases": [],
+          "news_count": 25,
+          "filtered_count": 8,
+          "last_seen_at": "2026-05-11T13:20:00+08:00",
+          "sample_titles": [
+            "ChatGPT 新功能开放给 Team 用户"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_version_difference",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_gpt5_versions",
+      "candidates": [
+        {
+          "keyword_id": "kw_gpt5",
+          "name": "GPT-5",
+          "type": "model",
+          "aliases": [],
+          "news_count": 20,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:00:00+08:00",
+          "sample_titles": [
+            "GPT-5 模型路线图曝光"
+          ]
+        },
+        {
+          "keyword_id": "kw_gpt55",
+          "name": "GPT-5.5",
+          "type": "model",
+          "aliases": [],
+          "news_count": 8,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "GPT-5.5 传闻引发模型能力讨论"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_tool_difference",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_gemini_cli",
+      "candidates": [
+        {
+          "keyword_id": "kw_gemini",
+          "name": "Gemini",
+          "type": "model",
+          "aliases": [],
+          "news_count": 18,
+          "filtered_count": 3,
+          "last_seen_at": "2026-05-11T13:00:00+08:00",
+          "sample_titles": [
+            "Gemini 模型更新"
+          ]
+        },
+        {
+          "keyword_id": "kw_gemini_cli",
+          "name": "Gemini CLI",
+          "type": "product",
+          "aliases": [],
+          "news_count": 5,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T12:30:00+08:00",
+          "sample_titles": [
+            "Gemini CLI 加入终端自动化能力"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "merge_cherry_studio_spacing",
+    "expected_decision": "merge",
+    "expected_canonical_id": "kw_cherry_studio",
+    "expected_merge_ids": ["kw_cherrystudio"],
+    "group": {
+      "group_id": "g_cherry_studio",
+      "candidates": [
+        {
+          "keyword_id": "kw_cherry_studio",
+          "name": "Cherry Studio",
+          "type": "product",
+          "aliases": [],
+          "news_count": 6,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T12:00:00+08:00",
+          "sample_titles": [
+            "Cherry Studio 发布多模型管理更新"
+          ]
+        },
+        {
+          "keyword_id": "kw_cherrystudio",
+          "name": "CherryStudio",
+          "type": "product",
+          "aliases": [],
+          "news_count": 1,
+          "filtered_count": 0,
+          "last_seen_at": "2026-05-11T10:00:00+08:00",
+          "sample_titles": [
+            "CherryStudio 使用体验"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "merge_ai_layoff_spacing",
+    "expected_decision": "merge",
+    "expected_canonical_id": "kw_ai_layoff_space",
+    "expected_merge_ids": ["kw_ai_layoff"],
+    "group": {
+      "group_id": "g_ai_layoff",
+      "candidates": [
+        {
+          "keyword_id": "kw_ai_layoff_space",
+          "name": "AI 裁员",
+          "type": "topic",
+          "aliases": [],
+          "news_count": 4,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:00:00+08:00",
+          "sample_titles": [
+            "AI 裁员潮继续影响科技公司"
+          ]
+        },
+        {
+          "keyword_id": "kw_ai_layoff",
+          "name": "AI裁员",
+          "type": "topic",
+          "aliases": [],
+          "news_count": 2,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T12:00:00+08:00",
+          "sample_titles": [
+            "AI裁员引发岗位结构讨论"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_codex_vs_codex_app",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_codex_app",
+      "candidates": [
+        {
+          "keyword_id": "kw_codex",
+          "name": "Codex",
+          "type": "product",
+          "aliases": [],
+          "news_count": 20,
+          "filtered_count": 8,
+          "last_seen_at": "2026-05-11T13:00:00+08:00",
+          "sample_titles": [
+            "Codex 在开发者工作流中使用增长"
+          ]
+        },
+        {
+          "keyword_id": "kw_codex_app",
+          "name": "Codex App",
+          "type": "product",
+          "aliases": [],
+          "news_count": 3,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T12:20:00+08:00",
+          "sample_titles": [
+            "Codex App Windows 版本体验"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_chatgpt_team_vs_gpt_team",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_chatgpt_team",
+      "candidates": [
+        {
+          "keyword_id": "kw_chatgpt_team",
+          "name": "ChatGPT Team",
+          "type": "product",
+          "aliases": [],
+          "news_count": 5,
+          "filtered_count": 3,
+          "last_seen_at": "2026-05-11T13:00:00+08:00",
+          "sample_titles": [
+            "ChatGPT Team 账号限制调整"
+          ]
+        },
+        {
+          "keyword_id": "kw_gpt_team",
+          "name": "GPT Team",
+          "type": "product",
+          "aliases": [],
+          "news_count": 1,
+          "filtered_count": 5,
+          "last_seen_at": "2026-05-11T12:20:00+08:00",
+          "sample_titles": [
+            "GPT Team 账号共享问题讨论"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_company_vs_product_family",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_apple_vision",
+      "candidates": [
+        {
+          "keyword_id": "kw_apple",
+          "name": "Apple",
+          "type": "org",
+          "aliases": [],
+          "news_count": 10,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:00:00+08:00",
+          "sample_titles": [
+            "Apple 调整 AI 产品路线"
+          ]
+        },
+        {
+          "keyword_id": "kw_apple_vision_pro",
+          "name": "Apple Vision Pro",
+          "type": "hardware",
+          "aliases": [],
+          "news_count": 3,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T11:20:00+08:00",
+          "sample_titles": [
+            "Apple Vision Pro 新功能曝光"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "merge_nvidia_cn_translation",
+    "expected_decision": "merge",
+    "group": {
+      "group_id": "g_nvidia_translation",
+      "candidates": [
+        {
+          "keyword_id": "kw_nvidia",
+          "name": "NVIDIA",
+          "type": "org",
+          "aliases": [],
+          "news_count": 10,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "NVIDIA 发布 Blackwell GPU 相关更新",
+            "NVIDIA 与云厂商扩展 AI 算力合作"
+          ]
+        },
+        {
+          "keyword_id": "kw_yingweida",
+          "name": "英伟达",
+          "type": "org",
+          "aliases": [],
+          "news_count": 8,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T13:20:00+08:00",
+          "sample_titles": [
+            "英伟达 Blackwell 需求继续增长",
+            "英伟达发布 AI 芯片路线图"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "merge_trump_cn_translation",
+    "expected_decision": "merge",
+    "group": {
+      "group_id": "g_trump_translation",
+      "candidates": [
+        {
+          "keyword_id": "kw_trump_mainland",
+          "name": "特朗普",
+          "type": "person",
+          "aliases": [],
+          "news_count": 6,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "特朗普政府调整 AI 出口管制政策",
+            "特朗普谈美国科技产业竞争"
+          ]
+        },
+        {
+          "keyword_id": "kw_trump_tw",
+          "name": "川普",
+          "type": "person",
+          "aliases": [],
+          "news_count": 4,
+          "filtered_count": 1,
+          "last_seen_at": "2026-05-11T13:20:00+08:00",
+          "sample_titles": [
+            "川普政府政策影响芯片供应链",
+            "川普再谈美国制造业回流"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "skip_translation_company_vs_product",
+    "expected_decision": "skip",
+    "group": {
+      "group_id": "g_openai_chatgpt_cn",
+      "candidates": [
+        {
+          "keyword_id": "kw_openai",
+          "name": "OpenAI",
+          "type": "org",
+          "aliases": [],
+          "news_count": 30,
+          "filtered_count": 5,
+          "last_seen_at": "2026-05-11T13:30:00+08:00",
+          "sample_titles": [
+            "OpenAI 宣布新的企业合作"
+          ]
+        },
+        {
+          "keyword_id": "kw_chatgpt_cn",
+          "name": "聊天GPT",
+          "type": "product",
+          "aliases": [],
+          "news_count": 3,
+          "filtered_count": 2,
+          "last_seen_at": "2026-05-11T13:20:00+08:00",
+          "sample_titles": [
+            "聊天GPT 用户规模继续增长"
+          ]
+        }
+      ]
+    }
+  }
+]

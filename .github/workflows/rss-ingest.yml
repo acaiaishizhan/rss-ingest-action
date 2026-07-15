@@ -1,0 +1,93 @@
+name: rss-ingest
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "3,18,33,48 * * * *"
+
+concurrency:
+  group: feishu-write
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    if: github.event_name == 'workflow_dispatch' || vars.RSS_INGEST_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout ingest code
+        uses: actions/checkout@v4
+
+      - name: Checkout private RSS snapshots
+        id: runtime_data
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: acaiaishizhan/rss-runtime-data
+          ssh-key: ${{ secrets.RSS_DATA_DEPLOY_KEY }}
+          path: runtime-data
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Configure runtime source mapping
+        shell: bash
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/runtime-data/source-map.json" ]]; then
+            echo "RSS_SOURCE_OVERRIDE_FILE=$GITHUB_WORKSPACE/runtime-data/source-map.json" >> "$GITHUB_ENV"
+            echo "Private RSS source mapping loaded."
+          else
+            echo "RSS_SOURCE_OVERRIDE_FILE=" >> "$GITHUB_ENV"
+            echo "::warning::Private RSS snapshots are unavailable; public feeds will continue."
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run RSS ingest
+        env:
+          PYTHONUNBUFFERED: "1"
+          TZ: Asia/Shanghai
+          RSS_INGEST_SKIP_LOCAL_ENV: "true"
+          RSS_SOURCE_MODE: github
+          DEFAULT_FETCH_INTERVAL_MIN: "0"
+          USE_SYSTEM_PROXY: "false"
+          ENABLE_BROWSER_ARTICLE_FETCH: "false"
+          ENABLE_X_BROWSER_FALLBACK: "false"
+          KEYWORD_SNAPSHOT_GIT_FETCH: "false"
+          KEYWORD_RUNTIME_SNAPSHOT_PATH: ${{ runner.temp }}/keyword_snapshot_runtime.json
+          LLM_PROVIDER: ark
+          TEXT_DEDUP_PROVIDER: ark
+          ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+          ARK_MODEL: ${{ secrets.ARK_MODEL || 'deepseek-v4-flash' }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
+          FEISHU_NEWS_TABLE_ID: ${{ secrets.FEISHU_NEWS_TABLE_ID }}
+          FEISHU_RSS_TABLE_ID: ${{ secrets.FEISHU_RSS_TABLE_ID }}
+          FEISHU_FILTERED_TABLE_ID: ${{ secrets.FEISHU_FILTERED_TABLE_ID }}
+          FEISHU_KEYWORD_TABLE_ID: ${{ secrets.FEISHU_KEYWORD_TABLE_ID }}
+          FEISHU_NOTIFY_TABLE_ID: ${{ secrets.FEISHU_NOTIFY_TABLE_ID }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: python rss_ingest.py
+
+      - name: Upload ingest logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-ingest-${{ github.run_id }}
+          path: out/rss-ingest/logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Report degraded private snapshot checkout
+        if: always() && steps.runtime_data.outcome == 'failure'
+        run: echo "::warning::Private RSS checkout failed; this run processed public sources only."

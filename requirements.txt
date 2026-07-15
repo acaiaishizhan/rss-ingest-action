@@ -1,0 +1,5 @@
+requests>=2.34.2,<3
+urllib3>=2.7,<3
+idna>=3.18,<4
+feedparser>=6.0.12,<7
+google-auth>=2.55.2,<3

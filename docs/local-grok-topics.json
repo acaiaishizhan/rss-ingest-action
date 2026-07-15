@@ -1,0 +1,189 @@
+[
+  {
+    "key": "ai_news",
+    "name": "纯AI新闻",
+    "platform": "x",
+    "interval_hours": 8,
+    "schedule_times": ["07:03", "13:03", "21:03"],
+    "window_hours": 10,
+    "prompt_file": "docs/local-grok-prompts/ai-news.md",
+    "title_prefix": "[AI新闻] ",
+    "enabled": true
+  },
+  {
+    "key": "deals",
+    "name": "AI羊毛",
+    "platform": "x",
+    "interval_hours": 24,
+    "schedule_times": ["01:23"],
+    "window_hours": 48,
+    "prompt_file": "docs/local-grok-prompts/deals.md",
+    "title_prefix": "",
+    "enabled": true
+  },
+  {
+    "key": "rumors",
+    "name": "小道消息",
+    "platform": "x",
+    "interval_hours": 12,
+    "schedule_times": ["00:23", "18:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/rumors.md",
+    "title_prefix": "[未核实] ",
+    "enabled": true
+  },
+  {
+    "key": "cases",
+    "name": "实战与赚钱案例",
+    "platform": "x",
+    "interval_hours": 12,
+    "schedule_times": ["08:23", "16:23"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/cases.md",
+    "title_prefix": "",
+    "enabled": true
+  },
+  {
+    "key": "burst",
+    "name": "选题爆款雷达",
+    "platform": "x",
+    "interval_hours": 12,
+    "schedule_times": ["07:23", "19:23"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/burst.md",
+    "title_prefix": "[爆款] ",
+    "enabled": true
+  },
+  {
+    "key": "tips",
+    "name": "AI技巧",
+    "platform": "x",
+    "interval_hours": 8,
+    "schedule_times": ["02:23", "10:23", "18:23"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/tips.md",
+    "title_prefix": "",
+    "enabled": true
+  },
+  {
+    "key": "peers",
+    "name": "同行launch雷达",
+    "platform": "x",
+    "interval_hours": 24,
+    "schedule_times": ["20:43"],
+    "window_hours": 48,
+    "prompt_file": "docs/local-grok-prompts/peers.md",
+    "title_prefix": "",
+    "enabled": true
+  },
+  {
+    "key": "resources",
+    "name": "高热资源",
+    "platform": "x",
+    "interval_hours": 6,
+    "schedule_times": ["03:23", "09:23", "15:23", "21:23"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/resources.md",
+    "title_prefix": "[资源] ",
+    "enabled": true
+  },
+  {
+    "key": "codex",
+    "name": "AI Coding Agent玩法",
+    "platform": "x",
+    "interval_hours": 8,
+    "schedule_times": ["04:43", "12:43", "22:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/codex.md",
+    "title_prefix": "[Coding] ",
+    "enabled": true
+  },
+  {
+    "key": "claude",
+    "name": "热门Prompt与Skill",
+    "platform": "x",
+    "interval_hours": 8,
+    "schedule_times": ["05:23", "13:23", "23:23"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/claude.md",
+    "title_prefix": "[Prompt] ",
+    "enabled": true
+  },
+  {
+    "key": "reddit_rumors",
+    "name": "Reddit小道消息",
+    "platform": "reddit",
+    "interval_hours": 12,
+    "schedule_times": ["09:43", "19:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-rumors.md",
+    "title_prefix": "[Reddit][未核实] ",
+    "enabled": false
+  },
+  {
+    "key": "reddit_cases",
+    "name": "Reddit实战案例",
+    "platform": "reddit",
+    "interval_hours": 8,
+    "schedule_times": ["02:43", "08:43", "17:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-cases.md",
+    "title_prefix": "[Reddit] ",
+    "enabled": false
+  },
+  {
+    "key": "reddit_burst",
+    "name": "Reddit爆款雷达",
+    "platform": "reddit",
+    "interval_hours": 24,
+    "schedule_times": ["01:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-burst.md",
+    "title_prefix": "[Reddit][爆款] ",
+    "enabled": false
+  },
+  {
+    "key": "reddit_tips",
+    "name": "Reddit AI技巧",
+    "platform": "reddit",
+    "interval_hours": 8,
+    "schedule_times": ["07:43", "13:43", "23:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-tips.md",
+    "title_prefix": "[Reddit] ",
+    "enabled": false
+  },
+  {
+    "key": "reddit_resources",
+    "name": "Reddit高热资源",
+    "platform": "reddit",
+    "interval_hours": 12,
+    "schedule_times": ["03:43", "14:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-resources.md",
+    "title_prefix": "[Reddit][资源] ",
+    "enabled": false
+  },
+  {
+    "key": "reddit_codex",
+    "name": "Reddit AI Coding Agent玩法",
+    "platform": "reddit",
+    "interval_hours": 12,
+    "schedule_times": ["05:43", "15:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-codex.md",
+    "title_prefix": "[Reddit][Coding] ",
+    "enabled": false
+  },
+  {
+    "key": "reddit_claude",
+    "name": "Reddit热门Prompt与Skill",
+    "platform": "reddit",
+    "interval_hours": 12,
+    "schedule_times": ["11:43", "21:43"],
+    "window_hours": 24,
+    "prompt_file": "docs/local-grok-prompts/reddit-claude.md",
+    "title_prefix": "[Reddit][Prompt] ",
+    "enabled": false
+  }
+]
