@@ -61,7 +61,7 @@ jobs:
       - name: Validate GitHub runtime
         if: github.event_name == 'workflow_dispatch' && inputs.preflight_only == true
         env:
-          ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
@@ -84,11 +84,11 @@ jobs:
           ENABLE_X_BROWSER_FALLBACK: "false"
           KEYWORD_SNAPSHOT_GIT_FETCH: "false"
           KEYWORD_RUNTIME_SNAPSHOT_PATH: ${{ runner.temp }}/keyword_snapshot_runtime.json
-          LLM_PROVIDER: ark
-          TEXT_DEDUP_PROVIDER: ark
-          ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
-          ARK_BASE_URL: ${{ secrets.ARK_BASE_URL }}
-          ARK_MODEL: ${{ secrets.ARK_MODEL || 'deepseek-v4-flash' }}
+          LLM_PROVIDER: deepseek
+          TEXT_DEDUP_PROVIDER: deepseek
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: https://api.deepseek.com
+          DEEPSEEK_MODEL: deepseek-v4-flash
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}

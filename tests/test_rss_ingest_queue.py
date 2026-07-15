@@ -2555,6 +2555,52 @@ def test_main_tolerates_single_llm_item_deferred_for_retry(monkeypatch):
     assert rss_ingest.main() == 0
 
 
+def test_main_returns_nonzero_when_every_queued_llm_item_fails(monkeypatch):
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_ID", "app", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_SECRET", "secret", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_TOKEN", "app-token", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_NEWS_TABLE_ID", "news", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_RSS_TABLE_ID", "rss", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_KEYWORD_TABLE_ID", "", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ENABLE_SECONDARY_SYNC", False, raising=False)
+    monkeypatch.setattr(rss_ingest, "get_tenant_access_token", lambda *args: "tenant")
+    monkeypatch.setattr(
+        rss_ingest,
+        "load_local_prompt_sections",
+        lambda: {"keyword_name_blocklist": set(), "keyword_blocklist": set(), "path": "test"},
+    )
+    monkeypatch.setattr(
+        rss_ingest,
+        "list_bitable_records",
+        lambda *args, **kwargs: [
+            {"record_id": "source-1", "fields": {"enabled": True, "feed_url": "https://example.com/rss"}}
+        ],
+    )
+    monkeypatch.setattr(rss_ingest, "prefetch_recent_item_keys_with_retries", lambda *args: set())
+    monkeypatch.setattr(
+        rss_ingest,
+        "split_sources_and_queue",
+        lambda *args, **kwargs: (
+            [],
+            {},
+            {
+                "queue_total": 20,
+                "sources_processed": 116,
+                "sources_skipped": 3,
+                "sources_failed": 2,
+                "entries_fetched": 5972,
+            },
+        ),
+    )
+
+    def fail_every_item(queue, source_states, tenant_token, existing_keys, stats, **kwargs):
+        stats["llm_failed"] = 20
+
+    monkeypatch.setattr(rss_ingest, "run_llm_queue", fail_every_item)
+
+    assert rss_ingest.main() == 1
+
+
 def test_load_local_prompt_sections_resolves_relative_paths_from_base_dir(tmp_path, monkeypatch):
     keyword_file = tmp_path / "docs" / "local-keyword-blocklist.txt"
     screen_file = tmp_path / "docs" / "local-screen-prompt.md"

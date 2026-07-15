@@ -1779,7 +1779,10 @@ def _run_provider_chat(
             notify_server_error(spec.display_name, last_status_detail or "HTTP 5xx")
         elif last_status_type == "timeout":
             notify_timeout(spec.display_name, str(last_err) if last_err else "timeout")
-    return _failed_exception(str(last_err) if last_err else "")
+    failure_detail = str(last_err) if last_err else ""
+    if last_status_type:
+        failure_detail = f"{last_status_type}: {last_status_detail or failure_detail or 'request failed'}"
+    return _failed_exception(failure_detail)
 
 
 def analyze_with_gemini_prompt(
@@ -4498,6 +4501,12 @@ def run_llm_queue(
             return
         categories = analysis.get("categories") or []
         if isinstance(categories, list) and any(c in FAILED_CATEGORIES for c in categories):
+            failure_reason = str(analysis.get("summary") or "llm_failed")
+            log(
+                "[LLM] analysis failed "
+                f"source={state['source'].get('name') or state['source'].get('feed_url') or item['source_id']} "
+                f"reason={truncate_text(failure_reason, 240)}"
+            )
             with lock:
                 stats["llm_failed"] += 1
                 upsert_failed_item(
@@ -4506,7 +4515,7 @@ def run_llm_queue(
                     item["entry_ts_ms"],
                     article.get("title") or "",
                     article.get("link") or "",
-                    str(analysis.get("summary") or "llm_failed"),
+                    failure_reason,
                     state["now_ms"],
                 )
             return
@@ -4934,7 +4943,15 @@ def main() -> int:
         "secondary_sync_failed",
     )
     has_processing_failure = any(int(stats.get(field, 0) or 0) > 0 for field in failure_fields)
-    return 1 if fatal_source_failures or has_processing_failure else 0
+    all_queued_llm_items_failed = (
+        int(stats.get("queue_total", 0) or 0) > 0
+        and int(stats.get("llm_failed", 0) or 0) >= int(stats.get("queue_total", 0) or 0)
+        and int(stats.get("llm_success", 0) or 0) == 0
+        and int(stats.get("llm_filtered", 0) or 0) == 0
+    )
+    if all_queued_llm_items_failed:
+        log("[LLM] fatal: every queued item failed; marking the run unsuccessful")
+    return 1 if fatal_source_failures or has_processing_failure or all_queued_llm_items_failed else 0
 
 
 def source_failures_are_fatal(stats: Dict[str, int]) -> bool:
