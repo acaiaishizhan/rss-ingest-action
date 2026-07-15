@@ -1,5 +1,6 @@
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -113,6 +114,25 @@ def test_sync_once_does_not_commit_or_dispatch_unchanged_feed(tmp_path: Path) ->
     flattened = [call[0] for call in runner.calls]
     assert not any(args[:2] == ["git", "commit"] for args in flattened)
     assert not any(args[:3] == ["gh", "workflow", "run"] for args in flattened)
+
+
+def test_sync_once_can_push_without_dispatching_during_preflight(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), dispatch_enabled=False)
+    target = config.data_repo_dir / "feeds/private-rss.xml"
+    target.parent.mkdir()
+    target.write_bytes(RSS_ONE)
+    runner = FakeRunner()
+    publisher = LocalFeedPublisher(config, runner=runner, source_reader=lambda source: RSS_TWO)
+
+    result = publisher.sync_once()
+
+    assert result.changed == ["private-rss"]
+    assert result.errors == {}
+    assert result.dispatched is False
+    flattened = [call[0] for call in runner.calls]
+    assert any(args[:2] == ["git", "push"] for args in flattened)
+    assert not any(args[:3] == ["gh", "workflow", "run"] for args in flattened)
+    assert json.loads(config.state_path.read_text(encoding="utf-8"))["dispatch_pending"] is True
 
 
 def test_sync_once_keeps_last_good_feed_when_new_payload_is_invalid(tmp_path: Path) -> None:

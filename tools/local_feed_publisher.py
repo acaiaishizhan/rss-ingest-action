@@ -12,7 +12,7 @@ import sys
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple
@@ -48,6 +48,7 @@ class PublisherConfig:
     settle_seconds: float
     gh_path: str
     lock_path: Path | None = None
+    dispatch_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> "PublisherConfig":
@@ -102,6 +103,8 @@ class PublisherConfig:
             settle_seconds=max(0.0, float(os.getenv("LOCAL_FEED_PUBLISHER_SETTLE_SECONDS", "90"))),
             gh_path=os.getenv("GH_PATH", str(home / ".local" / "bin" / "gh")).strip() or "gh",
             lock_path=state_dir / "publisher.lock",
+            dispatch_enabled=os.getenv("RSS_ACTION_DISPATCH_ENABLED", "true").lower()
+            in {"1", "true", "yes", "y"},
         )
 
 
@@ -295,7 +298,7 @@ class LocalFeedPublisher:
                 result.errors["git-push"] = str(exc)
                 self._save_state(state)
 
-        if state.get("dispatch_pending"):
+        if state.get("dispatch_pending") and self.config.dispatch_enabled:
             try:
                 result.dispatched = self._dispatch_pending(state)
             except Exception as exc:
@@ -354,8 +357,11 @@ def _acquire_lock(path: Path | None):
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="publish current snapshots and exit")
+    parser.add_argument("--no-dispatch", action="store_true", help="push snapshots without triggering the Action")
     args = parser.parse_args(argv)
     config = PublisherConfig.from_env()
+    if args.no_dispatch:
+        config = replace(config, dispatch_enabled=False)
     configure_logging(config.log_path)
     lock_handle = _acquire_lock(config.lock_path)
     try:

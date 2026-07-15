@@ -31,6 +31,14 @@ public rss-ingest-action workflow -> Feishu
 wsl.exe -d Ubuntu-22.04 -- /usr/bin/python3 /mnt/f/coding/rss-ingest-action/tools/local_feed_publisher.py --once
 ```
 
+迁移预检阶段只推送 XML、不触发入库：
+
+```powershell
+wsl.exe -d Ubuntu-22.04 -- /usr/bin/python3 /mnt/f/coding/rss-ingest-action/tools/local_feed_publisher.py --once --no-dispatch
+```
+
+随后在公开仓库手动运行 `rss-ingest`，勾选 `preflight_only`。这一步只验证 Secrets、私有仓库 checkout、source-map 和 XML，不请求或写入飞书数据。
+
 注册隐藏的登录启动任务：
 
 ```powershell
