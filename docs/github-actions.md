@@ -12,7 +12,7 @@ public rss-ingest-action workflow -> Feishu
 ## 仓库
 
 - `acaiaishizhan/rss-ingest-action`：公开代码和 RSS Action。
-- `acaiaishizhan/rss-runtime-data`：私有，只保存 `source-map.json` 与两份 XML 快照。
+- `acaiaishizhan/rss-runtime-data`：私有，只保存 `source-map.json` 与本地 RSS / Grok XML 快照。
 
 现有带历史的私有仓库不要直接改成公开；公开仓库从经过扫描的工作树快照建立。
 
@@ -62,6 +62,26 @@ Action 设置 `RSS_SOURCE_MODE=github`。规则如下：
 - `source-map.json` 中显式映射的两个飞书 RSS 记录改读私有 XML。
 - 其他 localhost、私网 IP、本地路径和 Grok 文件源会跳过，不计作失败。
 - 私有仓库 checkout 失败时，公开源仍继续，Workflow 会记录 degraded warning。
+
+## GitHub LLM provider
+
+GitHub runner 使用 DeepSeek 官方 API 的 `deepseek-v4-flash`，Secret 名为
+`DEEPSEEK_API_KEY`。本机默认仍可使用 Ark Coding Plan；不要把 Ark Coding Plan
+当作 GitHub 的生产 provider，因为账户额度耗尽时会返回
+`HTTP 429 AccountQuotaExceeded`，导致整批待处理内容延后。
+
+当一班 run 的所有 queued items 都在 LLM 阶段失败时，`rss_ingest.py` 必须返回
+非零退出码，避免 GitHub 把“0 条真正处理”的班次标成绿色成功。
+
+## 可选云端定时器
+
+Pipedream 工作流 `RSS Ingest Dispatch` 已准备为每 20 分钟触发一次
+`workflow_dispatch`。当前保持 Draft / OFF；需要电脑关机后仍持续抓公网源时再部署。
+免费计划不使用 10 分钟频率：144 次/天会超过当前 100 credits/天，20 分钟频率
+为 72 次/天并避免与 9–15 分钟的 GitHub ingest 大量重叠。
+
+Pipedream OFF 时，本机 `rss-local-feed-publisher` 仍会在快照内容变化并成功推送后
+触发一次 `workflow_dispatch`，因此本机开机期间主链不受影响。
 
 ## 回滚
 

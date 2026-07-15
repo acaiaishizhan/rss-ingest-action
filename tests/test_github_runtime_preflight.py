@@ -35,9 +35,9 @@ def test_validate_runtime_reports_missing_secret_names_only(tmp_path: Path) -> N
     feed.parent.mkdir()
     feed.write_bytes(RSS)
     env = _env()
-    env["ARK_API_KEY"] = ""
+    env["DEEPSEEK_API_KEY"] = ""
 
-    with pytest.raises(RuntimeError, match="ARK_API_KEY"):
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
         validate_runtime(_source_map(tmp_path), env)
 
 
