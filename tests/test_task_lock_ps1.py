@@ -1,10 +1,14 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "tools" / "task_lock.ps1"
+POWERSHELL = shutil.which("powershell.exe") or shutil.which("pwsh")
 
 
 def _ps_quote(value: Path) -> str:
@@ -12,6 +16,8 @@ def _ps_quote(value: Path) -> str:
 
 
 def _run_lock_probe(lock_path: Path) -> subprocess.CompletedProcess[str]:
+    if not POWERSHELL:
+        pytest.skip("PowerShell is unavailable")
     script = (
         f". '{_ps_quote(HELPER)}'; "
         f"$lock = Enter-TaskFileLock -Path '{_ps_quote(lock_path)}'; "
@@ -19,7 +25,7 @@ def _run_lock_probe(lock_path: Path) -> subprocess.CompletedProcess[str]:
         "Exit-TaskFileLock -Lock $lock"
     )
     return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", script],
         cwd=ROOT,
         text=True,
         capture_output=True,
