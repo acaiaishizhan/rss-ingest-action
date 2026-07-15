@@ -483,6 +483,40 @@ def text_hash(text: str) -> str:
     return hashlib.sha1(compact.encode("utf-8")).hexdigest()[:16]
 
 
+def _clean_x_image_url(value: Any) -> str:
+    text = html.unescape(str(value or "")).strip()
+    if not text.startswith(("http://", "https://")):
+        return ""
+    path = urlparse(text).path.lower()
+    if re.search(r"\.(?:mp4|m3u8)(?:$|\?)", text.lower()) or path.endswith((".mp4", ".m3u8")):
+        return ""
+    if re.search(r"\.(?:png|jpe?g|webp|gif)$", path) or "pbs.twimg.com" in text.lower():
+        return text
+    return ""
+
+
+def x_media_image_urls(tweet: Dict[str, Any]) -> List[str]:
+    media = tweet.get("media") or {}
+    urls: List[str] = []
+
+    for item in media.get("photos") or []:
+        if isinstance(item, dict):
+            urls.append(_clean_x_image_url(item.get("url")))
+
+    for item in media.get("videos") or []:
+        if isinstance(item, dict):
+            urls.append(_clean_x_image_url(item.get("thumbnail_url")))
+
+    for item in media.get("all") or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("type") or "").lower()
+        value = item.get("thumbnail_url") if kind in {"video", "gif", "animated_gif"} else item.get("url")
+        urls.append(_clean_x_image_url(value))
+
+    return list(dict.fromkeys(url for url in urls if url))[:8]
+
+
 def fxtwitter_lookup(status_id: str, handle: str = "i") -> Optional[Dict[str, Any]]:
     url = f"https://api.fxtwitter.com/{handle or 'i'}/status/{status_id}"
     data = None
@@ -516,6 +550,7 @@ def fxtwitter_lookup(status_id: str, handle: str = "i") -> Optional[Dict[str, An
         "likes": int(tweet.get("likes") or 0),
         "views": int(tweet.get("views") or 0),
         "text": str(tweet.get("text") or ""),
+        "image_urls": x_media_image_urls(tweet),
     }
 
 

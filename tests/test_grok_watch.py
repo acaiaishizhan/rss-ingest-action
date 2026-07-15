@@ -186,6 +186,18 @@ def test_fxtwitter_lookup_extracts_fields(monkeypatch):
             "created_timestamp": 1781234567,
             "likes": 5, "views": 340,
             "text": "first time I made money with AI",
+            "media": {
+                "photos": [{"url": "https://pbs.twimg.com/media/photo-one.jpg"}],
+                "videos": [
+                    {
+                        "url": "https://video.twimg.com/ext_tw_video/video-one.mp4",
+                        "thumbnail_url": "https://pbs.twimg.com/ext_tw_video_thumb/video-one.jpg",
+                    }
+                ],
+                "all": [
+                    {"type": "video", "url": "https://video.twimg.com/ext_tw_video/video-one.mp4"},
+                ],
+            },
         },
     }
     monkeypatch.setattr(gw.requests, "get", lambda url, timeout, headers: _FakeResp(200, payload))
@@ -197,6 +209,10 @@ def test_fxtwitter_lookup_extracts_fields(monkeypatch):
         "author": "RealGuy", "followers": 1234,
         "created_ms": 1781234567000, "likes": 5, "views": 340,
         "text": "first time I made money with AI",
+        "image_urls": [
+            "https://pbs.twimg.com/media/photo-one.jpg",
+            "https://pbs.twimg.com/ext_tw_video_thumb/video-one.jpg",
+        ],
     }
 
 

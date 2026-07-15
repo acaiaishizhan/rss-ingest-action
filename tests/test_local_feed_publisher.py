@@ -60,6 +60,22 @@ def _config(tmp_path: Path) -> PublisherConfig:
     )
 
 
+def test_from_env_includes_nine_grok_snapshots(monkeypatch, tmp_path: Path) -> None:
+    grok_dir = tmp_path / "grok-feeds"
+    monkeypatch.setenv("GROK_RSS_SNAPSHOT_DIR", str(grok_dir))
+
+    config = PublisherConfig.from_env()
+
+    grok_sources = [source for source in config.sources if source.name.startswith("grok-")]
+    assert len(config.sources) == 11
+    assert len(grok_sources) == 9
+    assert {source.target for source in grok_sources} == {
+        f"feeds/grok/{key}.xml"
+        for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")
+    }
+    assert {grok_dir / f"{key}.xml" for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")} <= set(config.watch_paths)
+
+
 def test_validate_feed_bytes_accepts_rss_and_atom() -> None:
     assert validate_feed_bytes(RSS_ONE) == 1
     atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>1</id></entry></feed>'

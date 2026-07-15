@@ -21,6 +21,15 @@ from feishu_client import get_tenant_access_token, list_bitable_records
 REQUIRED_FEEDS = {
     "http://localhost:8001/feed/all.rss": "feeds/we-mp-rss.xml",
     "http://127.0.0.1:8787/rss/all.xml": "feeds/private-rss.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\deals.xml": "feeds/grok/deals.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\rumors.xml": "feeds/grok/rumors.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\cases.xml": "feeds/grok/cases.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\burst.xml": "feeds/grok/burst.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\tips.xml": "feeds/grok/tips.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\peers.xml": "feeds/grok/peers.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\resources.xml": "feeds/grok/resources.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\codex.xml": "feeds/grok/codex.xml",
+    r"F:\coding\rss-ingest-local\data\grok-feeds\claude.xml": "feeds/grok/claude.xml",
 }
 
 
