@@ -19,7 +19,7 @@ from tools.local_feed_publisher import validate_feed_bytes
 
 
 REQUIRED_ENV = (
-    "DEEPSEEK_API_KEY",
+    "ARK_API_KEY",
     "FEISHU_APP_ID",
     "FEISHU_APP_SECRET",
     "FEISHU_APP_TOKEN",

@@ -65,13 +65,14 @@ Action 设置 `RSS_SOURCE_MODE=github`。规则如下：
 
 ## GitHub LLM provider
 
-GitHub runner 使用 DeepSeek 官方 API 的 `deepseek-v4-flash`，Secret 名为
-`DEEPSEEK_API_KEY`。本机默认仍可使用 Ark Coding Plan；不要把 Ark Coding Plan
-当作 GitHub 的生产 provider，因为账户额度耗尽时会返回
-`HTTP 429 AccountQuotaExceeded`，导致整批待处理内容延后。
+GitHub runner 使用 Ark Coding Plan 的 `deepseek-v4-flash`，Secrets 为
+`ARK_API_KEY`、`ARK_BASE_URL`、`ARK_MODEL`。2026-07-15 曾因账户额度耗尽返回
+`HTTP 429 AccountQuotaExceeded`，额度恢复并通过最小请求验证后已切回 Ark；
+`DEEPSEEK_API_KEY` 仅保留为需要人工切换时的应急 provider，不参与当前生产运行。
 
 当一班 run 的所有 queued items 都在 LLM 阶段失败时，`rss_ingest.py` 必须返回
-非零退出码，避免 GitHub 把“0 条真正处理”的班次标成绿色成功。
+非零退出码，避免 GitHub 把“0 条真正处理”的班次标成绿色成功。Workflow artifact
+同时保留 HTTP、JSON 解析和文本去重失败审计日志，便于区分额度、认证、限流和格式问题。
 
 ## 可选云端定时器
 
