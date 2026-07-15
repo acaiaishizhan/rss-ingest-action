@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "11,26,41,56 * * * *"
+    - cron: "7,17,27,37,47,57 * * * *"
 
 concurrency:
   group: feishu-write
