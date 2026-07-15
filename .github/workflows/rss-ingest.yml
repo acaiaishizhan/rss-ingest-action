@@ -105,7 +105,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rss-ingest-${{ github.run_id }}
-          path: out/rss-ingest/logs/
+          path: |
+            out/rss-ingest/logs/
+            out/llm_http_audit.log
+            out/llm_parse_failures.log
+            out/text_dedup_failures.log
           if-no-files-found: warn
           retention-days: 7
 
