@@ -25,6 +25,8 @@ public rss-ingest-action workflow -> Feishu
 
 检测到文件变化后等待 90 秒；随后读取 `http://127.0.0.1:8001/feed/all.rss` 和 private-rss 的 `all.xml`，只有 XML 合法、至少包含一个 item 且内容变化时才提交。推送成功后触发公开仓库的 `rss-ingest.yml`。
 
+私有仓库的数据提交采用滚动快照：如果当前 HEAD 已经是数据提交，发布器会 amend 并用 `--force-with-lease` 更新，只保留最新 XML，避免小时级更新让 Git 历史无限增长。配置提交不会被覆盖。
+
 手动单次同步：
 
 ```powershell

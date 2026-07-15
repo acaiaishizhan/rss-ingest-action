@@ -49,6 +49,7 @@ class PublisherConfig:
     gh_path: str
     lock_path: Path | None = None
     dispatch_enabled: bool = True
+    squash_snapshots: bool = True
 
     @classmethod
     def from_env(cls) -> "PublisherConfig":
@@ -104,6 +105,8 @@ class PublisherConfig:
             gh_path=os.getenv("GH_PATH", str(home / ".local" / "bin" / "gh")).strip() or "gh",
             lock_path=state_dir / "publisher.lock",
             dispatch_enabled=os.getenv("RSS_ACTION_DISPATCH_ENABLED", "true").lower()
+            in {"1", "true", "yes", "y"},
+            squash_snapshots=os.getenv("RSS_DATA_SQUASH_SNAPSHOTS", "true").lower()
             in {"1", "true", "yes", "y"},
         )
 
@@ -192,7 +195,7 @@ class LocalFeedPublisher:
                 return payload
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             pass
-        return {"push_pending": False, "dispatch_pending": False}
+        return {"push_pending": False, "push_force": False, "dispatch_pending": False}
 
     def _save_state(self, state: dict) -> None:
         self.config.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,8 +212,12 @@ class LocalFeedPublisher:
         )
 
     def _push_pending(self, state: dict) -> None:
-        self._run(["git", "push"], cwd=self.config.data_repo_dir)
+        args = ["git", "push"]
+        if state.get("push_force"):
+            args.append("--force-with-lease")
+        self._run(args, cwd=self.config.data_repo_dir)
         state["push_pending"] = False
+        state["push_force"] = False
         state["dispatch_pending"] = True
         self._save_state(state)
 
@@ -287,11 +294,23 @@ class LocalFeedPublisher:
                 relative_targets = [str(path.relative_to(self.config.data_repo_dir)) for path in changed_targets]
                 self._run(["git", "add", "--", *relative_targets], cwd=self.config.data_repo_dir)
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S %z")
+                head_subject = self._run(
+                    ["git", "log", "-1", "--format=%s"],
+                    cwd=self.config.data_repo_dir,
+                ).stdout.strip()
+                amend_snapshot = self.config.squash_snapshots and head_subject.startswith(
+                    "data: update local RSS feeds"
+                )
+                commit_args = ["git", "commit"]
+                if amend_snapshot:
+                    commit_args.append("--amend")
+                commit_args.extend(["-m", f"data: update local RSS feeds ({timestamp})"])
                 self._run(
-                    ["git", "commit", "-m", f"data: update local RSS feeds ({timestamp})"],
+                    commit_args,
                     cwd=self.config.data_repo_dir,
                 )
                 state["push_pending"] = True
+                state["push_force"] = amend_snapshot
                 self._save_state(state)
                 self._push_pending(state)
             except Exception as exc:

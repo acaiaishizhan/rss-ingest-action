@@ -20,9 +20,10 @@ RSS_TWO = b"""<?xml version="1.0"?><rss><channel><item><guid>2</guid></item></ch
 
 
 class FakeRunner:
-    def __init__(self, *, fail_dispatch_once: bool = False) -> None:
+    def __init__(self, *, fail_dispatch_once: bool = False, head_subject: str = "") -> None:
         self.calls = []
         self.fail_dispatch_once = fail_dispatch_once
+        self.head_subject = head_subject
 
     def __call__(self, args, *, cwd=None, check=True):
         call = (list(args), Path(cwd) if cwd else None)
@@ -30,7 +31,8 @@ class FakeRunner:
         if self.fail_dispatch_once and "workflow" in args:
             self.fail_dispatch_once = False
             raise subprocess.CalledProcessError(1, args)
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        stdout = self.head_subject if list(args[:3]) == ["git", "log", "-1"] else ""
+        return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
 
 def _config(tmp_path: Path) -> PublisherConfig:
@@ -133,6 +135,25 @@ def test_sync_once_can_push_without_dispatching_during_preflight(tmp_path: Path)
     assert any(args[:2] == ["git", "push"] for args in flattened)
     assert not any(args[:3] == ["gh", "workflow", "run"] for args in flattened)
     assert json.loads(config.state_path.read_text(encoding="utf-8"))["dispatch_pending"] is True
+
+
+def test_sync_once_amends_snapshot_tip_and_force_pushes_with_lease(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    target = config.data_repo_dir / "feeds/private-rss.xml"
+    target.parent.mkdir()
+    target.write_bytes(RSS_ONE)
+    runner = FakeRunner(head_subject="data: update local RSS feeds (earlier)")
+    publisher = LocalFeedPublisher(config, runner=runner, source_reader=lambda source: RSS_TWO)
+
+    result = publisher.sync_once()
+
+    assert result.errors == {}
+    flattened = [call[0] for call in runner.calls]
+    assert any(args[:3] == ["git", "commit", "--amend"] for args in flattened)
+    assert any(args == ["git", "push", "--force-with-lease"] for args in flattened)
+    state = json.loads(config.state_path.read_text(encoding="utf-8"))
+    assert state["push_pending"] is False
+    assert state["push_force"] is False
 
 
 def test_sync_once_keeps_last_good_feed_when_new_payload_is_invalid(tmp_path: Path) -> None:
