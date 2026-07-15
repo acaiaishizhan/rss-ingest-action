@@ -1712,10 +1712,10 @@ def _run_provider_chat(
             if resp.status_code in (401, 403):
                 if not suppress_notify:
                     notify_auth_failure(spec.display_name, response_snippet(resp))
-                return _failed_call()
+                return _failed_call(f"auth_error: {response_snippet(resp)}")
 
             if spec.fail_fast_on_400 and resp.status_code == 400:
-                return _failed_call()
+                return _failed_call(f"bad_request: {response_snippet(resp)}")
 
             if resp.status_code in (429, 500, 502, 503, 504):
                 last_status_type = "rate_limit" if resp.status_code == 429 else "server_error"
@@ -1728,9 +1728,10 @@ def _run_provider_chat(
                 continue
 
             if resp.status_code != 200:
+                failure_detail = f"http_error: {response_snippet(resp)}"
                 if spec.log_bad_status:
-                    log(f"[{spec.display_name}] bad status: {response_snippet(resp)}")
-                return _failed_call()
+                    log(f"[{spec.display_name}] bad status: {failure_detail}")
+                return _failed_call(failure_detail)
 
             response_data = resp.json()
             raw_text = spec.extract_text(response_data)

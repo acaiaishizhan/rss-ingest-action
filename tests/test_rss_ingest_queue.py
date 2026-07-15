@@ -800,6 +800,27 @@ def test_ark_content_filter_empty_content_does_not_retry_or_notify(monkeypatch):
     assert len(calls) == 1
 
 
+def test_deepseek_preserves_non_200_failure_detail(monkeypatch):
+    class DummyResponse:
+        status_code = 400
+        text = '{"error":{"message":"invalid request"}}'
+
+    monkeypatch.setattr(rss_ingest, "_http_post", lambda *args, **kwargs: DummyResponse())
+    monkeypatch.setattr(rss_ingest.config, "DEEPSEEK_API_KEY", "deepseek-key", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "DEEPSEEK_BASE_URL", "https://api.deepseek.com", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "DEEPSEEK_MODEL", "deepseek-v4-flash", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "DEEPSEEK_RETRIES", 1, raising=False)
+
+    result = rss_ingest.analyze_with_deepseek_prompt(
+        {"title": "t", "content": "c", "link": "https://example.com", "source": "src"},
+        "screen prompt",
+    )
+
+    assert result["categories"] == ["调用失败"]
+    assert "HTTP 400" in result["summary"]
+    assert "invalid request" in result["summary"]
+
+
 def test_analyze_with_llm_uses_gemini_model_name_for_primary_gemini_provider(monkeypatch):
     calls = []
 
