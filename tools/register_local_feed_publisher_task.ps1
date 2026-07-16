@@ -12,44 +12,21 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Publisher = Join-Path $ProjectRoot "tools\local_feed_publisher.py"
 $WslExe = Join-Path $env:SystemRoot "System32\wsl.exe"
+$HiddenLauncher = Join-Path $ProjectRoot "tools\run_local_feed_publisher_hidden.vbs"
+$HiddenRunner = Join-Path $ProjectRoot "tools\run_local_feed_publisher_local.ps1"
+$WScriptExe = Join-Path $env:SystemRoot "System32\wscript.exe"
 
-foreach ($required in @($Publisher, $WslExe)) {
+foreach ($required in @($Publisher, $WslExe, $HiddenLauncher, $HiddenRunner, $WScriptExe)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required file not found: $required"
     }
 }
 
-$PublisherWsl = $null
-if ($Publisher -match '^([A-Za-z]):\\(.*)$') {
-    $Drive = $Matches[1].ToLowerInvariant()
-    $RelativePath = $Matches[2] -replace '\\', '/'
-    $PublisherWsl = "/mnt/$Drive/$RelativePath"
-}
-if (-not $PublisherWsl) {
-    throw "Publisher path is not a Windows drive path: $Publisher"
-}
-
-function Quote-TaskArgument {
-    param([string]$Value)
-    return '"{0}"' -f ($Value -replace '"', '""')
-}
-
-$EscapedWslExe = $WslExe -replace "'", "''"
-$EscapedDistro = $Distro -replace "'", "''"
-$EscapedPublisher = $PublisherWsl -replace "'", "''"
-$WslCommand = "& '$EscapedWslExe' -d '$EscapedDistro' -- /usr/bin/python3 '$EscapedPublisher' --once; exit `$LASTEXITCODE"
-$ActionArguments = @(
-    "-NoProfile",
-    "-NonInteractive",
-    "-WindowStyle",
-    "Hidden",
-    "-Command",
-    (Quote-TaskArgument $WslCommand)
-)
+$ActionArguments = '//B //NoLogo "{0}" "{1}"' -f $HiddenLauncher, $Distro
 
 $Action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument ($ActionArguments -join " ") `
+    -Execute $WScriptExe `
+    -Argument $ActionArguments `
     -WorkingDirectory $ProjectRoot
 
 $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
