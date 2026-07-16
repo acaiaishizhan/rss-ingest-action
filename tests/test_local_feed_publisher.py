@@ -6,12 +6,14 @@ from pathlib import Path
 import pytest
 
 from tools.local_feed_publisher import (
+    FeedNotReadyError,
     FeedValidationError,
     LocalFeedPublisher,
     PublisherConfig,
     SourceSpec,
     feed_fingerprint,
     validate_feed_bytes,
+    validate_we_mp_feed_content,
     watch_signature,
 )
 
@@ -20,6 +22,8 @@ RSS_ONE = b"""<?xml version="1.0"?><rss><channel><item><guid>1</guid></item></ch
 RSS_TWO = b"""<?xml version="1.0"?><rss><channel><item><guid>2</guid></item></channel></rss>"""
 RSS_META_ONE = b"""<?xml version="1.0"?><rss><channel><lastBuildDate>one</lastBuildDate><item><guid>1</guid></item></channel></rss>"""
 RSS_META_TWO = b"""<?xml version="1.0"?><rss><channel><lastBuildDate>two</lastBuildDate><item><guid>1</guid></item></channel></rss>"""
+WE_MP_READY = b"""<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><guid>1</guid><content:encoded>&lt;p&gt;full body&lt;/p&gt;</content:encoded></item></channel></rss>"""
+WE_MP_PENDING = b"""<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><guid>1</guid><content:encoded></content:encoded></item></channel></rss>"""
 
 
 class FakeRunner:
@@ -60,15 +64,18 @@ def _config(tmp_path: Path) -> PublisherConfig:
     )
 
 
-def test_from_env_includes_nine_grok_snapshots(monkeypatch, tmp_path: Path) -> None:
+def test_from_env_includes_grok_and_substack_snapshots(monkeypatch, tmp_path: Path) -> None:
     grok_dir = tmp_path / "grok-feeds"
     monkeypatch.setenv("GROK_RSS_SNAPSHOT_DIR", str(grok_dir))
 
     config = PublisherConfig.from_env()
 
     grok_sources = [source for source in config.sources if source.name.startswith("grok-")]
-    assert len(config.sources) == 11
+    substack_sources = [source for source in config.sources if source.name.startswith("substack-")]
+    assert len(config.sources) == 18
     assert len(grok_sources) == 9
+    assert len(substack_sources) == 7
+    assert all(source.soft_fail for source in substack_sources)
     assert {source.target for source in grok_sources} == {
         f"feeds/grok/{key}.xml"
         for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")
@@ -80,6 +87,12 @@ def test_validate_feed_bytes_accepts_rss_and_atom() -> None:
     assert validate_feed_bytes(RSS_ONE) == 1
     atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>1</id></entry></feed>'
     assert validate_feed_bytes(atom) == 1
+
+
+def test_validate_we_mp_feed_content_rejects_transient_empty_bodies() -> None:
+    assert validate_we_mp_feed_content(WE_MP_READY) == 1
+    with pytest.raises(FeedNotReadyError, match="not ready for 1/1 items"):
+        validate_we_mp_feed_content(WE_MP_PENDING)
 
 
 def test_feed_fingerprint_ignores_feed_level_metadata() -> None:
@@ -213,6 +226,54 @@ def test_sync_once_keeps_last_good_feed_when_new_payload_is_invalid(tmp_path: Pa
     assert "private-rss" in result.errors
     assert target.read_bytes() == RSS_ONE
     assert not any(call[0][:2] == ["git", "commit"] for call in runner.calls)
+
+
+def test_sync_once_defers_incomplete_we_mp_feed_without_failing_task(tmp_path: Path) -> None:
+    config = replace(
+        _config(tmp_path),
+        sources=(SourceSpec("we-mp-rss", "http://127.0.0.1/feed", "feeds/we-mp-rss.xml"),),
+    )
+    target = config.data_repo_dir / "feeds/we-mp-rss.xml"
+    target.parent.mkdir()
+    target.write_bytes(WE_MP_READY)
+    runner = FakeRunner()
+    publisher = LocalFeedPublisher(config, runner=runner, source_reader=lambda source: WE_MP_PENDING)
+
+    result = publisher.sync_once()
+
+    assert result.changed == []
+    assert result.errors == {}
+    assert "we-mp-rss" in result.deferred
+    assert target.read_bytes() == WE_MP_READY
+    assert not any(call[0][:2] == ["git", "commit"] for call in runner.calls)
+
+
+def test_sync_once_soft_fails_public_mirror_and_keeps_last_good_snapshot(tmp_path: Path) -> None:
+    config = replace(
+        _config(tmp_path),
+        sources=(
+            SourceSpec(
+                "substack-test",
+                "https://example.com/feed",
+                "feeds/test.xml",
+                soft_fail=True,
+            ),
+        ),
+    )
+    target = config.data_repo_dir / "feeds/test.xml"
+    target.parent.mkdir()
+    target.write_bytes(RSS_ONE)
+    runner = FakeRunner()
+
+    def fail_reader(source):
+        raise RuntimeError("HTTP 403")
+
+    result = LocalFeedPublisher(config, runner=runner, source_reader=fail_reader).sync_once()
+
+    assert result.changed == []
+    assert result.errors == {}
+    assert result.deferred == {"substack-test": "HTTP 403"}
+    assert target.read_bytes() == RSS_ONE
 
 
 def test_failed_dispatch_is_persisted_and_retried_without_new_feed_change(tmp_path: Path) -> None:

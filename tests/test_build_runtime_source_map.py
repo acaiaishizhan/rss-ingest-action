@@ -29,7 +29,7 @@ def test_build_source_map_matches_exact_local_feed_urls() -> None:
             for index, target in enumerate(REQUIRED_FEEDS.values(), start=1)
         },
     }
-    assert len(payload["sources"]) == 11
+    assert len(payload["sources"]) == 18
 
 
 def test_build_source_map_fails_when_a_required_feed_is_missing_or_duplicated() -> None:

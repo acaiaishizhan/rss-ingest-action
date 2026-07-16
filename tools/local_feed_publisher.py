@@ -34,9 +34,36 @@ GROK_FEED_KEYS = (
     "claude",
 )
 
+SUBSTACK_MIRROR_FEEDS = (
+    ("substack-prompthub", "https://prompthub.substack.com/feed", "feeds/public-mirror/prompthub-substack.xml"),
+    ("substack-a16z", "https://a16z.substack.com/feed", "feeds/public-mirror/a16z-substack.xml"),
+    (
+        "substack-department-of-product",
+        "https://departmentofproduct.substack.com/feed",
+        "feeds/public-mirror/departmentofproduct-substack.xml",
+    ),
+    ("substack-ai-models", "https://aimodels.substack.com/feed", "feeds/public-mirror/aimodels-substack.xml"),
+    ("substack-the-sequence", "https://thesequence.substack.com/feed", "feeds/public-mirror/thesequence-substack.xml"),
+    ("substack-gary-marcus", "https://garymarcus.substack.com/feed", "feeds/public-mirror/garymarcus-substack.xml"),
+    (
+        "substack-micro-saas-idea",
+        "https://microsaasidea.substack.com/feed",
+        "feeds/public-mirror/microsaasidea-substack.xml",
+    ),
+)
+
+SUBSTACK_FEED_TARGETS = {
+    source_url: target
+    for _, source_url, target in SUBSTACK_MIRROR_FEEDS
+}
+
 
 class FeedValidationError(ValueError):
     """Raised when a candidate feed must not replace the last good snapshot."""
+
+
+class FeedNotReadyError(FeedValidationError):
+    """Raised when a valid feed is still being populated by its producer."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +71,7 @@ class SourceSpec:
     name: str
     source: str
     target: str
+    soft_fail: bool = False
 
 
 def _path_as_file_uri(path: Path) -> str:
@@ -105,6 +133,10 @@ class PublisherConfig:
             )
             for key, path in zip(GROK_FEED_KEYS, grok_feed_paths)
         )
+        substack_sources = tuple(
+            SourceSpec(name, source_url, target, soft_fail=True)
+            for name, source_url, target in SUBSTACK_MIRROR_FEEDS
+        )
         state_dir = Path(
             os.getenv(
                 "LOCAL_FEED_PUBLISHER_STATE_DIR",
@@ -133,6 +165,7 @@ class PublisherConfig:
                 ),
                 SourceSpec("private-rss", _path_as_file_uri(private_feed), "feeds/private-rss.xml"),
                 *grok_sources,
+                *substack_sources,
             ),
             watch_paths=(
                 private_feed,
@@ -156,6 +189,7 @@ class PublisherConfig:
 class SyncResult:
     changed: List[str] = field(default_factory=list)
     errors: Dict[str, str] = field(default_factory=dict)
+    deferred: Dict[str, str] = field(default_factory=dict)
     dispatched: bool = False
 
 
@@ -177,6 +211,29 @@ def validate_feed_bytes(payload: bytes) -> int:
     item_count = sum(1 for element in root.iter() if _local_name(element.tag) in item_names)
     if item_count <= 0:
         raise FeedValidationError("feed contains no items")
+    return item_count
+
+
+def validate_we_mp_feed_content(payload: bytes) -> int:
+    """Reject the transient state where WeChat items exist before their body is ready."""
+
+    item_count = validate_feed_bytes(payload)
+    root = ET.fromstring(payload)
+    incomplete = 0
+    for element in root.iter():
+        if _local_name(element.tag) != "item":
+            continue
+        encoded = next(
+            (child for child in list(element) if _local_name(child.tag) == "encoded"),
+            None,
+        )
+        body = "" if encoded is None else "".join(encoded.itertext()).strip()
+        if not body:
+            incomplete += 1
+    if incomplete:
+        raise FeedNotReadyError(
+            f"feed body is not ready for {incomplete}/{item_count} items"
+        )
     return item_count
 
 
@@ -328,6 +385,8 @@ class LocalFeedPublisher:
             try:
                 payload = self.source_reader(source)
                 item_count = validate_feed_bytes(payload)
+                if source.name == "we-mp-rss":
+                    validate_we_mp_feed_content(payload)
                 if target.is_file():
                     existing = target.read_bytes()
                     if existing == payload:
@@ -345,9 +404,16 @@ class LocalFeedPublisher:
                 changed_targets.append(target)
                 result.changed.append(source.name)
                 LOGGER.info("validated %s items=%s", source.name, item_count)
+            except FeedNotReadyError as exc:
+                result.deferred[source.name] = str(exc)
+                LOGGER.warning("source %s deferred: %s", source.name, exc)
             except Exception as exc:
-                result.errors[source.name] = str(exc)
-                LOGGER.error("source %s rejected: %s", source.name, exc)
+                if source.soft_fail:
+                    result.deferred[source.name] = str(exc)
+                    LOGGER.warning("source %s deferred; keeping last good snapshot: %s", source.name, exc)
+                else:
+                    result.errors[source.name] = str(exc)
+                    LOGGER.error("source %s rejected: %s", source.name, exc)
 
         if changed_targets:
             try:
