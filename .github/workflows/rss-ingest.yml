@@ -58,6 +58,20 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Prepare alert cooldown cache key
+        id: alert_cache_key
+        shell: bash
+        run: echo "hour=$(date -u +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore alert cooldown
+        id: alert_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/task-alerts
+          key: rss-alert-cooldown-${{ steps.alert_cache_key.outputs.hour }}
+          restore-keys: |
+            rss-alert-cooldown-
+
       - name: Validate GitHub runtime
         if: github.event_name == 'workflow_dispatch' && inputs.preflight_only == true
         env:
@@ -112,6 +126,16 @@ jobs:
             out/text_dedup_failures.log
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Save alert cooldown
+        if: >-
+          always() &&
+          steps.alert_cache.outputs.cache-hit != 'true' &&
+          hashFiles('.cache/task-alerts/**') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/task-alerts
+          key: rss-alert-cooldown-${{ steps.alert_cache_key.outputs.hour }}
 
       - name: Report degraded private snapshot checkout
         if: always() && steps.runtime_data.outcome == 'failure'
