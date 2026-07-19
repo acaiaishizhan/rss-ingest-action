@@ -188,7 +188,7 @@ NEWS / FILTERED 的「全文」写入前会被限制在 80000 字符内，避免
 本机只保留数据生产和发布：
 
 - `we-mp-rss` 与 `private-rss` 继续按原频率更新。
-- `tools/local_feed_publisher.py` 在 WSL 中观察本地 RSS、Grok feed、外部博客/Reddit 镜像和 KEYWORD 快照；校验通过且内容变化时推送私有数据仓库。入库由固定 GitHub schedule 负责，发布器不再额外 dispatch，避免同一批数据并发触发两班。
+- `tools/local_feed_publisher.py` 在 WSL 中观察本地 RSS、Grok feed、外部博客/Reddit 镜像和 KEYWORD 快照；校验通过且内容变化时推送私有数据仓库，并 dispatch 一班入库。GitHub schedule 作为电脑离线时的 best-effort 兜底；两种触发共享 `feishu-write` 并发组，重叠时串行执行。
 - 发布器复用 WSL 当前 `gh` 登录态，不把 GitHub Token 写进两个 RSS 容器。
 - 电脑关机时，Action 继续处理公开源；开机后发布器启动会主动对账并补推两个本地源。
 

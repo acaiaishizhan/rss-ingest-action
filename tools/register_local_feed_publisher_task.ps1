@@ -54,7 +54,7 @@ Register-ScheduledTask `
     -Trigger @($LogonTrigger, $PeriodicTrigger) `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "Publish local/private/Grok RSS snapshots every $IntervalMinutes minutes; GitHub schedule runs ingestion." `
+    -Description "Publish local/private/Grok RSS snapshots every $IntervalMinutes minutes and dispatch ingestion when data changes." `
     -Force | Out-Null
 
 if (-not $NoStart) {

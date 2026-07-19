@@ -7,8 +7,9 @@ Windows Docker RSS / Grok / KEYWORD snapshot
                     |
                     v
        WSL local_feed_publisher.py -> private rss-runtime-data
-                                             |
-GitHub schedule (07/27/47) ------------------+
+                    |                        |
+           changed-data dispatch -----------+
+GitHub schedule (07/27/47, best effort) -----+
                     |
                     v
          public rss-ingest-action -> Feishu
@@ -28,7 +29,7 @@ GitHub schedule (07/27/47) ------------------+
 - `/mnt/f/coding/solo-company/tools/private-rss/data/all.xml`
 - `/mnt/f/coding/we-mp-rss/data/db.db` 及其 WAL/SHM 文件
 
-Windows 任务每 10 分钟以 `--once` 运行一次，读取 `http://127.0.0.1:8001/feed/all.rss`、private-rss 的 `all.xml`、Grok feeds、6 个 Substack feed、PromptHub 官方博客、2 个 Reddit 搜索 feed 和本机 KEYWORD 快照。只有 XML/JSON 合法且语义内容发生变化时才提交；`lastBuildDate` 等 feed 级时间戳变化会忽略。we-mp-rss 的新条目若正文尚未生成，会等待下一班；超过 1 小时仍为空的坏条目会从发布快照中剔除，避免永久卡住其余正常文章。外部博客镜像抓取失败属于软失败，会保留最后一份好快照；Reddit 429 会遵循 `Retry-After` 或 10–20 秒退避。发布器只推送数据，不再触发 Action；固定 GitHub schedule 负责入库，避免 push dispatch 与 schedule 重叠。
+Windows 任务每 10 分钟以 `--once` 运行一次，读取 `http://127.0.0.1:8001/feed/all.rss`、private-rss 的 `all.xml`、Grok feeds、6 个 Substack feed、PromptHub 官方博客、2 个 Reddit 搜索 feed 和本机 KEYWORD 快照。只有 XML/JSON 合法且语义内容发生变化时才提交；`lastBuildDate` 等 feed 级时间戳变化会忽略。we-mp-rss 的新条目若正文尚未生成，会等待下一班；超过 1 小时仍为空的坏条目会从发布快照中剔除，避免永久卡住其余正常文章。外部博客镜像抓取失败属于软失败，会保留最后一份好快照；Reddit 429 会遵循 `Retry-After` 或 10–20 秒退避。推送成功后发布器 dispatch RSS Action；GitHub schedule 作为电脑离线时的 best-effort 兜底。两种触发共享 `feishu-write` 并发组，重叠时只会排队串行。
 
 私有仓库的数据提交采用滚动快照：如果当前 HEAD 已经是数据提交，发布器会 amend 并用 `--force-with-lease` 更新，只保留最新 XML，避免小时级更新让 Git 历史无限增长。配置提交不会被覆盖。
 
@@ -82,9 +83,10 @@ GitHub runner 使用 Ark Coding Plan 的 `deepseek-v4-flash`，Secrets 为
 
 ## 云端定时器
 
-公开仓库的原生 schedule 每小时 `07 / 27 / 47` 分运行，共 72 班/天。仓库变量
-`RSS_INGEST_ENABLED=true` 时生效。Pipedream 保持 Draft / OFF，本机发布器也不再发送
-`workflow_dispatch`；生产环境只有一个定时入口。
+公开仓库的原生 schedule 配置为每小时 `07 / 27 / 47` 分运行。仓库变量
+`RSS_INGEST_ENABLED=true` 时生效，但 GitHub 可能延迟或合并高频 schedule，因此不承诺
+严格 20 分钟 SLA。本机发布器在私有数据变化时发送 `workflow_dispatch` 作为主触发；
+Pipedream 保持 Draft / OFF。
 
 ## 回滚
 

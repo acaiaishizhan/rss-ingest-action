@@ -22,5 +22,5 @@ $Drive = $Matches[1].ToLowerInvariant()
 $RelativePath = $Matches[2] -replace '\\', '/'
 $PublisherWsl = "/mnt/$Drive/$RelativePath"
 
-& $WslExe -d $Distro -- /usr/bin/env RSS_ACTION_DISPATCH_ENABLED=false /usr/bin/python3 $PublisherWsl --once
+& $WslExe -d $Distro -- /usr/bin/python3 $PublisherWsl --once
 exit $LASTEXITCODE
