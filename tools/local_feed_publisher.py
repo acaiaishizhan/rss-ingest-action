@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import email.utils
 import hashlib
+import html
 import json
 import logging
 import os
@@ -14,10 +17,11 @@ import time
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, replace
+from html.parser import HTMLParser
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 
 LOGGER = logging.getLogger("local-feed-publisher")
@@ -35,7 +39,7 @@ GROK_FEED_KEYS = (
 )
 
 SUBSTACK_MIRROR_FEEDS = (
-    ("substack-prompthub", "https://prompthub.substack.com/feed", "feeds/public-mirror/prompthub-substack.xml"),
+    ("prompthub-blog", "https://www.prompthub.us/blog", "feeds/public-mirror/prompthub-blog.xml"),
     ("substack-a16z", "https://a16z.substack.com/feed", "feeds/public-mirror/a16z-substack.xml"),
     (
         "substack-department-of-product",
@@ -56,6 +60,13 @@ SUBSTACK_FEED_TARGETS = {
     source_url: target
     for _, source_url, target in SUBSTACK_MIRROR_FEEDS
 }
+# The Feishu source record still carries the retired Substack URL.  Runtime
+# routing keeps that stable record id while the publisher now mirrors the
+# official PromptHub blog.
+SUBSTACK_FEED_TARGETS.pop("https://www.prompthub.us/blog", None)
+SUBSTACK_FEED_TARGETS["https://prompthub.substack.com/feed"] = (
+    "feeds/public-mirror/prompthub-blog.xml"
+)
 
 
 class FeedValidationError(ValueError):
@@ -72,6 +83,7 @@ class SourceSpec:
     source: str
     target: str
     soft_fail: bool = False
+    kind: str = "feed"
 
 
 def _path_as_file_uri(path: Path) -> str:
@@ -125,6 +137,12 @@ class PublisherConfig:
             )
         )
         grok_feed_paths = tuple(grok_feed_dir / f"{key}.xml" for key in GROK_FEED_KEYS)
+        keyword_snapshot = Path(
+            os.getenv(
+                "KEYWORD_SNAPSHOT_PUBLISH_PATH",
+                "/mnt/f/coding/rss-ingest-local/data/keyword_snapshot.json",
+            )
+        )
         grok_sources = tuple(
             SourceSpec(
                 f"grok-{key}",
@@ -166,6 +184,12 @@ class PublisherConfig:
                 SourceSpec("private-rss", _path_as_file_uri(private_feed), "feeds/private-rss.xml"),
                 *grok_sources,
                 *substack_sources,
+                SourceSpec(
+                    "keyword-snapshot",
+                    _path_as_file_uri(keyword_snapshot),
+                    "keyword_snapshot.json",
+                    kind="json",
+                ),
             ),
             watch_paths=(
                 private_feed,
@@ -173,6 +197,7 @@ class PublisherConfig:
                 Path(f"{we_mp_db}-wal"),
                 Path(f"{we_mp_db}-shm"),
                 *grok_feed_paths,
+                keyword_snapshot,
             ),
             poll_seconds=max(1.0, float(os.getenv("LOCAL_FEED_PUBLISHER_POLL_SECONDS", "5"))),
             settle_seconds=max(0.0, float(os.getenv("LOCAL_FEED_PUBLISHER_SETTLE_SECONDS", "90"))),
@@ -235,6 +260,141 @@ def validate_we_mp_feed_content(payload: bytes) -> int:
             f"feed body is not ready for {incomplete}/{item_count} items"
         )
     return item_count
+
+
+def sanitize_we_mp_feed_content(
+    payload: bytes,
+    *,
+    now: dt.datetime | None = None,
+    grace_seconds: int = 3600,
+) -> tuple[bytes, int]:
+    """Wait for fresh bodies, but stop one permanently empty item blocking the feed."""
+
+    validate_feed_bytes(payload)
+    root = ET.fromstring(payload)
+    current = now or dt.datetime.now(dt.timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=dt.timezone.utc)
+    deferred = 0
+    dropped = 0
+    for parent in root.iter():
+        for element in list(parent):
+            if _local_name(element.tag) != "item":
+                continue
+            encoded = next(
+                (child for child in list(element) if _local_name(child.tag) == "encoded"),
+                None,
+            )
+            body = "" if encoded is None else "".join(encoded.itertext()).strip()
+            if body:
+                continue
+            raw_date = ""
+            for child in list(element):
+                if _local_name(child.tag) == "pubdate":
+                    raw_date = "".join(child.itertext()).strip()
+                    break
+            try:
+                published = email.utils.parsedate_to_datetime(raw_date)
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=dt.timezone.utc)
+                age_seconds = (current - published).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                age_seconds = 0
+            if age_seconds < max(0, grace_seconds):
+                deferred += 1
+                continue
+            parent.remove(element)
+            dropped += 1
+    if deferred:
+        item_count = validate_feed_bytes(payload)
+        raise FeedNotReadyError(f"feed body is not ready for {deferred}/{item_count} fresh items")
+    if dropped:
+        sanitized = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        validate_feed_bytes(sanitized)
+        return sanitized, dropped
+    return payload, 0
+
+
+def validate_keyword_snapshot_bytes(payload: bytes, min_entries: int = 1000) -> int:
+    data = json.loads(payload.decode("utf-8-sig"))
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if int((data or {}).get("schema_version") or 0) < 2 or not isinstance(entries, list):
+        raise FeedValidationError("keyword snapshot must use schema v2 with entries")
+    if len(entries) < min_entries:
+        raise FeedValidationError(f"keyword snapshot contains only {len(entries)} entries")
+    return len(entries)
+
+
+class _PromptHubBlogParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.posts: List[Dict[str, str]] = []
+        self.current: Dict[str, str] | None = None
+        self.capture = ""
+        self.capture_parts: List[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        values = dict(attrs)
+        classes = set(str(values.get("class") or "").split())
+        if tag == "a" and "blog-post-preview-content" in classes:
+            self.current = {"href": str(values.get("href") or ""), "title": "", "date": ""}
+        elif self.current is not None and tag == "h2" and "blog-title-list-page" in classes:
+            self.capture = "title"
+            self.capture_parts = []
+        elif self.current is not None and tag == "p" and "blog-date" in classes:
+            self.capture = "date"
+            self.capture_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self.capture:
+            self.capture_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.current is not None and self.capture and tag in {"h2", "p"}:
+            self.current[self.capture] = " ".join("".join(self.capture_parts).split())
+            self.capture = ""
+            self.capture_parts = []
+        if tag == "a" and self.current is not None:
+            if self.current.get("href") and self.current.get("title"):
+                self.posts.append(self.current)
+            self.current = None
+            self.capture = ""
+            self.capture_parts = []
+
+
+def build_prompthub_blog_feed(payload: bytes, source_url: str) -> bytes:
+    parser = _PromptHubBlogParser()
+    parser.feed(payload.decode("utf-8", errors="replace"))
+    seen = set()
+    posts = []
+    for post in parser.posts:
+        link = urljoin(source_url, post["href"])
+        if link in seen:
+            continue
+        seen.add(link)
+        posts.append({**post, "link": link})
+    if not posts:
+        raise FeedValidationError("PromptHub blog page contains no posts")
+    rss = ET.Element("rss", {"version": "2.0"})
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = "PromptHub Blog"
+    ET.SubElement(channel, "link").text = source_url
+    ET.SubElement(channel, "description").text = "PromptHub product updates and prompt engineering guides"
+    for post in posts[:50]:
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = html.unescape(post["title"])
+        ET.SubElement(item, "link").text = post["link"]
+        ET.SubElement(item, "guid", {"isPermaLink": "true"}).text = post["link"]
+        try:
+            published = dt.datetime.strptime(post.get("date", "").strip(), "%B %d, %Y").replace(
+                tzinfo=dt.timezone.utc
+            )
+            ET.SubElement(item, "pubDate").text = email.utils.format_datetime(published)
+        except ValueError:
+            pass
+    result = ET.tostring(rss, encoding="utf-8", xml_declaration=True)
+    validate_feed_bytes(result)
+    return result
 
 
 def feed_fingerprint(payload: bytes) -> str:
@@ -384,9 +544,17 @@ class LocalFeedPublisher:
             target = self._target_path(source)
             try:
                 payload = self.source_reader(source)
-                item_count = validate_feed_bytes(payload)
+                if source.name == "prompthub-blog":
+                    payload = build_prompthub_blog_feed(payload, source.source)
+                if source.kind == "json":
+                    item_count = validate_keyword_snapshot_bytes(payload)
+                else:
+                    item_count = validate_feed_bytes(payload)
                 if source.name == "we-mp-rss":
-                    validate_we_mp_feed_content(payload)
+                    payload, dropped = sanitize_we_mp_feed_content(payload)
+                    item_count = validate_feed_bytes(payload)
+                    if dropped:
+                        LOGGER.warning("source we-mp-rss dropped stale empty-body items=%s", dropped)
                 if target.is_file():
                     existing = target.read_bytes()
                     if existing == payload:

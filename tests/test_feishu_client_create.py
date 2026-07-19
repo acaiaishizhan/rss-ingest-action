@@ -42,7 +42,7 @@ def test_http_post_retries_transient_feishu_business_code(monkeypatch):
     ]
     calls = []
     monkeypatch.setattr(feishu_client, "_request", lambda *args, **kwargs: calls.append(args) or responses.pop(0))
-    monkeypatch.setattr(feishu_client, "_sleep_backoff", lambda attempt: None)
+    monkeypatch.setattr(feishu_client, "_sleep_backoff", lambda attempt, response=None: None)
 
     response = feishu_client.http_post(
         "https://open.feishu.cn/open-apis/example",
@@ -63,7 +63,7 @@ def test_http_post_retries_transient_http_status(monkeypatch):
     ]
     calls = []
     monkeypatch.setattr(feishu_client, "_request", lambda *args, **kwargs: calls.append(args) or responses.pop(0))
-    monkeypatch.setattr(feishu_client, "_sleep_backoff", lambda attempt: None)
+    monkeypatch.setattr(feishu_client, "_sleep_backoff", lambda attempt, response=None: None)
 
     response = feishu_client.http_post(
         "https://open.feishu.cn/open-apis/example",
@@ -75,3 +75,29 @@ def test_http_post_retries_transient_http_status(monkeypatch):
 
     assert response.status_code == 200
     assert len(calls) == 2
+
+
+def test_http_post_uses_feishu_retry_floor_and_raises_clear_error(monkeypatch):
+    calls = []
+    monkeypatch.setattr(feishu_client.config, "FEISHU_HTTP_RETRIES", 4, raising=False)
+    monkeypatch.setattr(
+        feishu_client,
+        "_request",
+        lambda *args, **kwargs: calls.append(args) or DummyResponse({}, status_code=503),
+    )
+    monkeypatch.setattr(feishu_client, "_sleep_backoff", lambda attempt, response=None: None)
+
+    try:
+        feishu_client.http_post(
+            "https://open.feishu.cn/open-apis/example",
+            {},
+            {},
+            timeout=3,
+            retries=1,
+        )
+    except RuntimeError as exc:
+        assert "transient POST response after 4 attempts" in str(exc)
+    else:
+        raise AssertionError("expected exhausted transient response to fail")
+
+    assert len(calls) == 4

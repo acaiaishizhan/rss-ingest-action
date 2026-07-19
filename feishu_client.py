@@ -18,8 +18,30 @@ class PaginationLimitError(RuntimeError):
     pass
 
 
-def _sleep_backoff(attempt: int) -> None:
-    time.sleep(min(8.0, 0.8 * (2 ** attempt) + random.random() * 0.3))
+class FeishuTransientError(RuntimeError):
+    pass
+
+
+def _effective_retries(retries: int) -> int:
+    configured = int(getattr(config, "FEISHU_HTTP_RETRIES", retries) or retries)
+    return max(1, int(retries), configured)
+
+
+def _retry_after_seconds(resp: Optional[requests.Response]) -> float:
+    if resp is None:
+        return 0.0
+    raw = str((getattr(resp, "headers", {}) or {}).get("Retry-After") or "").strip()
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _sleep_backoff(attempt: int, resp: Optional[requests.Response] = None) -> None:
+    base = max(0.0, float(getattr(config, "FEISHU_RETRY_BASE_SECONDS", 1.5) or 1.5))
+    cap = max(base, float(getattr(config, "FEISHU_RETRY_MAX_SECONDS", 30.0) or 30.0))
+    jittered = base * (2 ** attempt) + random.random() * min(1.0, base)
+    time.sleep(min(cap, max(_retry_after_seconds(resp), jittered)))
 
 
 def _response_snippet(resp: requests.Response, limit: int = 300) -> str:
@@ -91,16 +113,24 @@ def _request_multipart(
 
 def http_get(url: str, headers: Dict[str, str], timeout: int, retries: int, params: Optional[Dict[str, Any]] = None) -> requests.Response:
     last_err: Optional[Exception] = None
-    for i in range(retries):
+    attempts = _effective_retries(retries)
+    for i in range(attempts):
         try:
             resp = _request("GET", url, headers, timeout, params=params)
-            if _response_is_transient(resp) and i < retries - 1:
-                _sleep_backoff(i)
-                continue
+            if _response_is_transient(resp):
+                if i < attempts - 1:
+                    _sleep_backoff(i, resp)
+                    continue
+                raise FeishuTransientError(
+                    f"[Feishu] transient GET response after {attempts} attempts: {_response_snippet(resp)}"
+                )
             return resp
         except Exception as exc:
             last_err = exc
-            _sleep_backoff(i)
+            if isinstance(exc, FeishuTransientError):
+                break
+            if i < attempts - 1:
+                _sleep_backoff(i)
     raise RuntimeError(f"HTTP GET failed after retries: {last_err}")
 
 
@@ -113,16 +143,24 @@ def http_post(
     params: Optional[Dict[str, Any]] = None,
 ) -> requests.Response:
     last_err: Optional[Exception] = None
-    for i in range(retries):
+    attempts = _effective_retries(retries)
+    for i in range(attempts):
         try:
             resp = _request("POST", url, headers, timeout, params=params, json_body=json_body)
-            if _response_is_transient(resp) and i < retries - 1:
-                _sleep_backoff(i)
-                continue
+            if _response_is_transient(resp):
+                if i < attempts - 1:
+                    _sleep_backoff(i, resp)
+                    continue
+                raise FeishuTransientError(
+                    f"[Feishu] transient POST response after {attempts} attempts: {_response_snippet(resp)}"
+                )
             return resp
         except Exception as exc:
             last_err = exc
-            _sleep_backoff(i)
+            if isinstance(exc, FeishuTransientError):
+                break
+            if i < attempts - 1:
+                _sleep_backoff(i)
     raise RuntimeError(f"HTTP POST failed after retries: {last_err}")
 
 
@@ -135,31 +173,47 @@ def http_post_multipart(
     retries: int,
 ) -> requests.Response:
     last_err: Optional[Exception] = None
-    for i in range(retries):
+    attempts = _effective_retries(retries)
+    for i in range(attempts):
         try:
             resp = _request_multipart(url, headers, timeout, data=data, files=files)
-            if _response_is_transient(resp) and i < retries - 1:
-                _sleep_backoff(i)
-                continue
+            if _response_is_transient(resp):
+                if i < attempts - 1:
+                    _sleep_backoff(i, resp)
+                    continue
+                raise FeishuTransientError(
+                    f"[Feishu] transient multipart response after {attempts} attempts: {_response_snippet(resp)}"
+                )
             return resp
         except Exception as exc:
             last_err = exc
-            _sleep_backoff(i)
+            if isinstance(exc, FeishuTransientError):
+                break
+            if i < attempts - 1:
+                _sleep_backoff(i)
     raise RuntimeError(f"HTTP multipart POST failed after retries: {last_err}")
 
 
 def http_put(url: str, headers: Dict[str, str], json_body: Dict[str, Any], timeout: int, retries: int) -> requests.Response:
     last_err: Optional[Exception] = None
-    for i in range(retries):
+    attempts = _effective_retries(retries)
+    for i in range(attempts):
         try:
             resp = _request("PUT", url, headers, timeout, json_body=json_body)
-            if _response_is_transient(resp) and i < retries - 1:
-                _sleep_backoff(i)
-                continue
+            if _response_is_transient(resp):
+                if i < attempts - 1:
+                    _sleep_backoff(i, resp)
+                    continue
+                raise FeishuTransientError(
+                    f"[Feishu] transient PUT response after {attempts} attempts: {_response_snippet(resp)}"
+                )
             return resp
         except Exception as exc:
             last_err = exc
-            _sleep_backoff(i)
+            if isinstance(exc, FeishuTransientError):
+                break
+            if i < attempts - 1:
+                _sleep_backoff(i)
     raise RuntimeError(f"HTTP PUT failed after retries: {last_err}")
 
 

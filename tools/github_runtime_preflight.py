@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.local_feed_publisher import validate_feed_bytes
+from tools.local_feed_publisher import validate_feed_bytes, validate_keyword_snapshot_bytes
 
 
 REQUIRED_ENV = (
@@ -30,7 +30,11 @@ REQUIRED_ENV = (
 )
 
 
-def validate_runtime(source_map_path: Path, env: Mapping[str, str]) -> tuple[int, int]:
+def validate_runtime(
+    source_map_path: Path,
+    env: Mapping[str, str],
+    keyword_snapshot_path: Path,
+) -> tuple[int, int, int]:
     missing = [name for name in REQUIRED_ENV if not str(env.get(name) or "").strip()]
     if missing:
         raise RuntimeError(f"missing required GitHub Secrets: {', '.join(missing)}")
@@ -63,15 +67,26 @@ def validate_runtime(source_map_path: Path, env: Mapping[str, str]) -> tuple[int
         if not resolved.is_file():
             raise RuntimeError(f"runtime feed snapshot is unavailable: {relative_path}")
         total_items += validate_feed_bytes(resolved.read_bytes())
-    return len(sources), total_items
+    if not keyword_snapshot_path.is_file():
+        raise RuntimeError(f"keyword snapshot is unavailable: {keyword_snapshot_path}")
+    keyword_count = validate_keyword_snapshot_bytes(keyword_snapshot_path.read_bytes())
+    return len(sources), total_items, keyword_count
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-map", required=True, type=Path)
+    parser.add_argument("--keyword-snapshot", required=True, type=Path)
     args = parser.parse_args(argv)
-    source_count, item_count = validate_runtime(args.source_map, os.environ)
-    print(f"GitHub runtime preflight passed: sources={source_count} items={item_count}")
+    source_count, item_count, keyword_count = validate_runtime(
+        args.source_map,
+        os.environ,
+        args.keyword_snapshot,
+    )
+    print(
+        "GitHub runtime preflight passed: "
+        f"sources={source_count} items={item_count} keywords={keyword_count}"
+    )
     return 0
 
 

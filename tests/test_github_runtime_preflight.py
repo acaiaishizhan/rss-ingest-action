@@ -22,12 +22,21 @@ def _source_map(tmp_path: Path, target: str = "feeds/private.xml") -> Path:
     return mapping
 
 
+def _keyword_snapshot(tmp_path: Path, count: int = 1000) -> Path:
+    snapshot = tmp_path / "keyword_snapshot.json"
+    snapshot.write_text(
+        json.dumps({"schema_version": 2, "entries": [{} for _ in range(count)]}),
+        encoding="utf-8",
+    )
+    return snapshot
+
+
 def test_validate_runtime_accepts_valid_private_feed(tmp_path: Path) -> None:
     feed = tmp_path / "feeds/private.xml"
     feed.parent.mkdir()
     feed.write_bytes(RSS)
 
-    assert validate_runtime(_source_map(tmp_path), _env()) == (1, 1)
+    assert validate_runtime(_source_map(tmp_path), _env(), _keyword_snapshot(tmp_path)) == (1, 1, 1000)
 
 
 def test_validate_runtime_reports_missing_secret_names_only(tmp_path: Path) -> None:
@@ -38,7 +47,7 @@ def test_validate_runtime_reports_missing_secret_names_only(tmp_path: Path) -> N
     env["ARK_API_KEY"] = ""
 
     with pytest.raises(RuntimeError, match="ARK_API_KEY"):
-        validate_runtime(_source_map(tmp_path), env)
+        validate_runtime(_source_map(tmp_path), env, _keyword_snapshot(tmp_path))
 
 
 def test_validate_runtime_rejects_path_escape(tmp_path: Path) -> None:
@@ -46,7 +55,7 @@ def test_validate_runtime_rejects_path_escape(tmp_path: Path) -> None:
     outside.write_bytes(RSS)
 
     with pytest.raises(RuntimeError, match="stay inside"):
-        validate_runtime(_source_map(tmp_path, "../outside.xml"), _env())
+        validate_runtime(_source_map(tmp_path, "../outside.xml"), _env(), _keyword_snapshot(tmp_path))
 
 
 def test_validate_runtime_rejects_invalid_feed(tmp_path: Path) -> None:
@@ -55,4 +64,13 @@ def test_validate_runtime_rejects_invalid_feed(tmp_path: Path) -> None:
     feed.write_text("<html>login</html>", encoding="utf-8")
 
     with pytest.raises(ValueError, match="unexpected feed root"):
-        validate_runtime(_source_map(tmp_path), _env())
+        validate_runtime(_source_map(tmp_path), _env(), _keyword_snapshot(tmp_path))
+
+
+def test_validate_runtime_rejects_missing_keyword_snapshot(tmp_path: Path) -> None:
+    feed = tmp_path / "feeds/private.xml"
+    feed.parent.mkdir()
+    feed.write_bytes(RSS)
+
+    with pytest.raises(RuntimeError, match="keyword snapshot is unavailable"):
+        validate_runtime(_source_map(tmp_path), _env(), tmp_path / "missing.json")

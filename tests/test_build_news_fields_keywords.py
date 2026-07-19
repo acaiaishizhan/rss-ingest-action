@@ -837,6 +837,7 @@ def test_ensure_keyword_records_persists_created_keyword_to_runtime_snapshot(mon
         return True, "rec_new"
 
     monkeypatch.setattr(rss_ingest, "create_bitable_record_with_id", fake_create)
+    monkeypatch.setattr(rss_ingest, "lookup_keyword_record_by_name", lambda *args: None)
 
     record_ids = rss_ingest.ensure_keyword_records(
         [{"name": "NewModel", "type": "model"}],
@@ -873,6 +874,7 @@ def test_ensure_keyword_records_creates_missing_keyword(monkeypatch):
         return True, "rec_new"
 
     monkeypatch.setattr(rss_ingest, "create_bitable_record_with_id", fake_create)
+    monkeypatch.setattr(rss_ingest, "lookup_keyword_record_by_name", lambda *args: None)
     monkeypatch.setattr(rss_ingest.time, "time", lambda: 1700000000.0)
     index = {}
 
@@ -891,6 +893,33 @@ def test_ensure_keyword_records_creates_missing_keyword(monkeypatch):
     assert config.KEYWORD_FIELD_ALIASES not in captured["fields"]
     assert captured["fields"][config.KEYWORD_FIELD_FIRST_SEEN] == 1701234567000
     assert index["openai"].record_id == "rec_new"
+
+
+def test_ensure_keyword_records_probes_live_table_before_create(monkeypatch):
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_KEYWORD_TABLE_ID", "tbl_keyword", raising=False)
+    live_record = rss_ingest.KeywordRecord(
+        record_id="rec_live",
+        canonical_name="Claude Code",
+        type="product",
+        aliases=["claudecode"],
+    )
+    monkeypatch.setattr(rss_ingest, "lookup_keyword_record_by_name", lambda *args: live_record)
+    monkeypatch.setattr(
+        rss_ingest,
+        "create_bitable_record_with_id",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should reuse live record")),
+    )
+    index = {}
+
+    record_ids = rss_ingest.ensure_keyword_records(
+        [{"name": "claudecode", "type": "product"}],
+        "tenant-token",
+        index,
+        threading.Lock(),
+    )
+
+    assert record_ids == ["rec_live"]
+    assert index["compact:claudecode"].record_id == "rec_live"
 
 
 def test_keyword_names_from_analysis_filters_blocklisted(monkeypatch):

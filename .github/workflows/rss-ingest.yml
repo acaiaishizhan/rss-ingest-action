@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "7,17,27,37,47,57 * * * *"
+    - cron: "7,27,47 * * * *"
 
 concurrency:
   group: feishu-write
@@ -25,12 +25,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout ingest code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout private RSS snapshots
         id: runtime_data
         continue-on-error: true
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: acaiaishizhan/rss-runtime-data
           ssh-key: ${{ secrets.RSS_DATA_DEPLOY_KEY }}
@@ -48,9 +48,16 @@ jobs:
             echo "RSS_SOURCE_OVERRIDE_FILE=" >> "$GITHUB_ENV"
             echo "::warning::Private RSS snapshots are unavailable; public feeds will continue."
           fi
+          if [[ -f "$GITHUB_WORKSPACE/runtime-data/keyword_snapshot.json" ]]; then
+            echo "KEYWORD_SNAPSHOT_PATH=$GITHUB_WORKSPACE/runtime-data/keyword_snapshot.json" >> "$GITHUB_ENV"
+            echo "Keyword snapshot loaded."
+          else
+            echo "KEYWORD_SNAPSHOT_PATH=" >> "$GITHUB_ENV"
+            echo "::warning::Keyword snapshot is unavailable; live Feishu prefetch will be used."
+          fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -65,7 +72,7 @@ jobs:
 
       - name: Restore alert cooldown
         id: alert_cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache/task-alerts
           key: rss-alert-cooldown-${{ steps.alert_cache_key.outputs.hour }}
@@ -76,6 +83,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.preflight_only == true
         env:
           ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+          ARK_API_KEY_2: ${{ secrets.ARK_API_KEY_2 }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
@@ -83,7 +91,10 @@ jobs:
           FEISHU_RSS_TABLE_ID: ${{ secrets.FEISHU_RSS_TABLE_ID }}
           FEISHU_FILTERED_TABLE_ID: ${{ secrets.FEISHU_FILTERED_TABLE_ID }}
           FEISHU_KEYWORD_TABLE_ID: ${{ secrets.FEISHU_KEYWORD_TABLE_ID }}
-        run: python tools/github_runtime_preflight.py --source-map "$RSS_SOURCE_OVERRIDE_FILE"
+        run: >-
+          python tools/github_runtime_preflight.py
+          --source-map "$RSS_SOURCE_OVERRIDE_FILE"
+          --keyword-snapshot "$KEYWORD_SNAPSHOT_PATH"
 
       - name: Run RSS ingest
         if: github.event_name != 'workflow_dispatch' || inputs.preflight_only != true
@@ -96,11 +107,18 @@ jobs:
           USE_SYSTEM_PROXY: "false"
           ENABLE_BROWSER_ARTICLE_FETCH: "false"
           ENABLE_X_BROWSER_FALLBACK: "false"
+          KEYWORD_SNAPSHOT_GIT_REF: ""
           KEYWORD_SNAPSHOT_GIT_FETCH: "false"
+          KEYWORD_SNAPSHOT_MAX_AGE_HOURS: "30"
           KEYWORD_RUNTIME_SNAPSHOT_PATH: ${{ runner.temp }}/keyword_snapshot_runtime.json
+          FEISHU_HTTP_RETRIES: "7"
+          FEISHU_RETRY_BASE_SECONDS: "1.5"
+          FEISHU_RETRY_MAX_SECONDS: "30"
+          RSS_INGEST_ITEM_KEY_PREFETCH_ATTEMPTS: "3"
           LLM_PROVIDER: ark
           TEXT_DEDUP_PROVIDER: ark
           ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+          ARK_API_KEY_2: ${{ secrets.ARK_API_KEY_2 }}
           ARK_BASE_URL: ${{ secrets.ARK_BASE_URL }}
           ARK_MODEL: ${{ secrets.ARK_MODEL || 'deepseek-v4-flash' }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
@@ -116,7 +134,7 @@ jobs:
 
       - name: Upload ingest logs
         if: always() && (github.event_name != 'workflow_dispatch' || inputs.preflight_only != true)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rss-ingest-${{ github.run_id }}
           path: |
@@ -132,7 +150,7 @@ jobs:
           always() &&
           steps.alert_cache.outputs.cache-hit != 'true' &&
           hashFiles('.cache/task-alerts/**') != ''
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache/task-alerts
           key: rss-alert-cooldown-${{ steps.alert_cache_key.outputs.hour }}

@@ -223,6 +223,12 @@ KEYWORD_TYPE_OPTIONS = {
 
 HTTP_TIMEOUT = 20
 HTTP_RETRIES = 3
+# Feishu occasionally returns a blank 503 for tens of seconds.  Keep generic
+# HTTP retries short, but give Feishu calls enough time to ride out that
+# transient window without replaying the whole ingest job.
+FEISHU_HTTP_RETRIES = int(os.getenv("FEISHU_HTTP_RETRIES", "7"))
+FEISHU_RETRY_BASE_SECONDS = float(os.getenv("FEISHU_RETRY_BASE_SECONDS", "1.5"))
+FEISHU_RETRY_MAX_SECONDS = float(os.getenv("FEISHU_RETRY_MAX_SECONDS", "30"))
 USE_SYSTEM_PROXY = os.getenv("USE_SYSTEM_PROXY", "true").lower() in {"1", "true", "yes", "y"}
 ENABLE_IMAGE_ATTACHMENTS = os.getenv("ENABLE_IMAGE_ATTACHMENTS", "true").lower() in {"1", "true", "yes", "y"}
 IMAGE_ATTACHMENT_MAX_PER_RECORD = int(os.getenv("IMAGE_ATTACHMENT_MAX_PER_RECORD", "10"))
@@ -269,6 +275,7 @@ OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", "60"))
 OPENAI_RETRIES = int(os.getenv("OPENAI_RETRIES", "10"))
 
 ARK_API_KEY = os.getenv("ARK_API_KEY", "")
+ARK_API_KEY_2 = os.getenv("ARK_API_KEY_2", "")
 ARK_BASE_URL = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3").rstrip("/")
 ARK_MODEL = os.getenv("ARK_MODEL", "deepseek-v4-flash")
 ARK_TIMEOUT = int(os.getenv("ARK_TIMEOUT", "60"))

@@ -68,6 +68,8 @@ PROMPT_SUMMARIZE_MARKER_ALIASES = (
 TWO_STAGE_PROVIDERS = {"gemini", "iflow", "openai", "ark", "deepseek", "zhipu", "ollama"}
 DEPRECATED_PROVIDERS: set[str] = set()
 _RUN_LOG_LOCK = threading.Lock()
+_PROVIDER_KEY_ROTATION_LOCK = threading.Lock()
+_PROVIDER_KEY_ROTATION_INDEX: Dict[str, int] = {}
 
 
 class _TeeStream:
@@ -1254,6 +1256,21 @@ def gemini_api_keys_source() -> List[str]:
     return [config.GEMINI_API_KEY] if config.GEMINI_API_KEY else []
 
 
+def ark_api_keys_source() -> List[str]:
+    keys = [config.ARK_API_KEY, getattr(config, "ARK_API_KEY_2", "")]
+    return list(dict.fromkeys(str(key or "").strip() for key in keys if str(key or "").strip()))
+
+
+def round_robin_api_keys(provider: str, api_keys: List[str]) -> List[str]:
+    keys = list(dict.fromkeys(str(key or "").strip() for key in api_keys if str(key or "").strip()))
+    if len(keys) <= 1:
+        return keys
+    with _PROVIDER_KEY_ROTATION_LOCK:
+        index = _PROVIDER_KEY_ROTATION_INDEX.get(provider, 0) % len(keys)
+        _PROVIDER_KEY_ROTATION_INDEX[provider] = (index + 1) % len(keys)
+    return keys[index:] + keys[:index]
+
+
 def gemini_auth_missing_message() -> str:
     if gemini_backend() == "vertex":
         return "missing Google ADC / GOOGLE_CLOUD_PROJECT"
@@ -1363,6 +1380,11 @@ def get_analysis_action(analysis: Dict[str, Any]) -> str:
 def has_failed_categories(analysis: Dict[str, Any]) -> bool:
     categories = analysis.get("categories") or []
     return isinstance(categories, list) and any(category in FAILED_CATEGORIES for category in categories)
+
+
+def is_terminal_llm_failure_reason(reason: str) -> bool:
+    normalized = str(reason or "").lower()
+    return "sensitivecontentdetected" in normalized or normalized.startswith("content_policy:")
 
 
 def mark_analysis_provider(analysis: Dict[str, Any], provider: str) -> Dict[str, Any]:
@@ -1595,7 +1617,7 @@ PROVIDERS: Dict[str, ProviderSpec] = {
         build_payload=build_ark_payload,
         build_headers=_bearer_headers,
         extract_text=_extract_openai_compat_text,
-        api_keys_source=lambda: [config.ARK_API_KEY] if config.ARK_API_KEY else [],
+        api_keys_source=ark_api_keys_source,
         default_model=lambda: config.ARK_MODEL,
         parse_retries_attr="ARK_PARSE_RETRIES",
     ),
@@ -1668,7 +1690,7 @@ def _run_provider_chat(
     if fixed_api_key is not None:
         api_keys = [fixed_api_key]
     else:
-        api_keys = spec.api_keys_source()
+        api_keys = round_robin_api_keys(spec.name, spec.api_keys_source())
 
     requires_auth = spec.requires_auth() if callable(spec.requires_auth) else spec.requires_auth
     if requires_auth and not api_keys:
@@ -1713,6 +1735,9 @@ def _run_provider_chat(
                 if not suppress_notify:
                     notify_auth_failure(spec.display_name, response_snippet(resp))
                 return _failed_call(f"auth_error: {response_snippet(resp)}")
+
+            if resp.status_code == 400 and "SensitiveContentDetected" in (resp.text or ""):
+                return _failed_call("content_policy: SensitiveContentDetected")
 
             if spec.fail_fast_on_400 and resp.status_code == 400:
                 return _failed_call(f"bad_request: {response_snippet(resp)}")
@@ -2888,6 +2913,7 @@ class KeywordRecord:
     record_id: str
     canonical_name: str
     type: str
+    aliases: List[str] = field(default_factory=list)
     parent_ids: List[str] = field(default_factory=list)
     owner_ids: List[str] = field(default_factory=list)
     news_count: int = 0
@@ -2980,10 +3006,12 @@ def put_keyword_index_record(
 
 
 def keyword_record_from_fields(record_id: str, fields: Dict[str, Any]) -> KeywordRecord:
+    aliases_text = clean_feishu_value(fields.get(config.KEYWORD_FIELD_ALIASES))
     return KeywordRecord(
         record_id=record_id,
         canonical_name=clean_feishu_value(fields.get(config.KEYWORD_FIELD_CANONICAL_NAME)).strip(),
         type=clean_feishu_value(fields.get(config.KEYWORD_FIELD_TYPE)).strip().lower(),
+        aliases=[line.strip() for line in aliases_text.splitlines() if line.strip()],
         parent_ids=_keyword_record_ids_from_cell(fields.get(config.KEYWORD_FIELD_PARENT)),
         owner_ids=_keyword_record_ids_from_cell(fields.get(config.KEYWORD_FIELD_OWNERS)),
         news_count=parse_keyword_count_value(fields.get(config.KEYWORD_FIELD_NEWS_COUNT)),
@@ -2992,11 +3020,12 @@ def keyword_record_from_fields(record_id: str, fields: Dict[str, Any]) -> Keywor
 
 
 def keyword_record_to_snapshot_entry(record: KeywordRecord, aliases: Optional[List[str]] = None) -> Dict[str, Any]:
+    snapshot_aliases = record.aliases if aliases is None else aliases
     return {
         "record_id": record.record_id,
         "canonical_name": record.canonical_name,
         "type": record.type,
-        "aliases": [str(alias).strip() for alias in aliases or [] if str(alias or "").strip()],
+        "aliases": [str(alias).strip() for alias in snapshot_aliases if str(alias or "").strip()],
         "news_count": record.news_count,
         "filtered_count": record.filtered_count,
         "note": "",
@@ -3094,6 +3123,7 @@ def build_keyword_index_from_snapshot_payload(payload: Dict[str, Any]) -> Dict[s
             record_id=record_id,
             canonical_name=canonical,
             type=clean_feishu_value(item.get("type")).strip().lower(),
+            aliases=_snapshot_aliases(item.get("aliases")),
             parent_ids=_snapshot_record_ids(item.get("parent_ids")),
             owner_ids=_snapshot_record_ids(item.get("owner_ids")),
             news_count=parse_keyword_count_value(item.get("news_count")),
@@ -3498,6 +3528,48 @@ def prefetch_keyword_index_for_ingest(tenant_token: str) -> Dict[str, KeywordRec
     return prefetch_keyword_index(tenant_token)
 
 
+def lookup_keyword_record_by_name(name: str, tenant_token: str) -> Optional[KeywordRecord]:
+    clean_name = clean_feishu_value(name).strip()
+    table_id = clean_feishu_value(getattr(config, "FEISHU_KEYWORD_TABLE_ID", "")).strip()
+    if not clean_name or not table_id:
+        return None
+    filter_obj = {
+        "conjunction": "or",
+        "conditions": [
+            {
+                "field_name": config.KEYWORD_FIELD_CANONICAL_NAME,
+                "operator": "is",
+                "value": [clean_name],
+            },
+            {
+                "field_name": config.KEYWORD_FIELD_ALIASES,
+                "operator": "contains",
+                "value": [clean_name],
+            },
+        ],
+    }
+    records = list_bitable_records(
+        config.FEISHU_APP_TOKEN,
+        table_id,
+        tenant_token,
+        config.HTTP_TIMEOUT,
+        config.HTTP_RETRIES,
+        page_size=20,
+        max_pages=2,
+        filter_obj=filter_obj,
+        allow_partial=False,
+    )
+    index = build_keyword_index_from_records(records)
+    return next(
+        (
+            index[key]
+            for key in keyword_alias_index_keys(clean_name)
+            if key in index
+        ),
+        None,
+    )
+
+
 def ensure_keyword_records(
     keywords: List[Dict[str, Any]],
     tenant_token: str,
@@ -3525,6 +3597,15 @@ def ensure_keyword_records(
 
         with keyword_lock:
             existing = next((keyword_index[key] for key in keys if key in keyword_index), None)
+            if not existing:
+                # A cloud runner starts from the daily snapshot.  Probe Feishu
+                # before creating a snapshot miss so keywords added by a newer
+                # ingest run cannot be duplicated.
+                existing = lookup_keyword_record_by_name(name, tenant_token)
+                if existing:
+                    for alias_name in [existing.canonical_name, *existing.aliases]:
+                        for alias_key in keyword_alias_index_keys(alias_name):
+                            keyword_index[alias_key] = existing
             if existing:
                 record_ids.append(existing.record_id)
                 continue
@@ -4508,6 +4589,34 @@ def run_llm_queue(
                 f"source={state['source'].get('name') or state['source'].get('feed_url') or item['source_id']} "
                 f"reason={truncate_text(failure_reason, 240)}"
             )
+            if is_terminal_llm_failure_reason(failure_reason):
+                filtered_analysis = build_filtered_analysis(
+                    {
+                        "action": "filter",
+                        "reason": "LLM 内容安全策略拒绝，本条不再自动重试",
+                        "title_zh": str(article.get("title") or ""),
+                        "summary": truncate_text(str(article.get("content") or ""), 500),
+                        "categories": [],
+                        "keywords": [],
+                    },
+                    "LLM安全策略",
+                    failure_reason,
+                )
+                with lock:
+                    stats["llm_filtered"] += 1
+                recorded = record_filtered_outcome(
+                    article,
+                    filtered_analysis,
+                    item["item_key"],
+                    tenant_token,
+                    existing_keys,
+                    stats,
+                    lock,
+                )
+                if not recorded:
+                    with lock:
+                        remember_write_failure("content_policy_filtered_create_failed")
+                return
             with lock:
                 stats["llm_failed"] += 1
                 upsert_failed_item(
@@ -4848,6 +4957,7 @@ def main() -> int:
         "text_dedup_skipped": 0,
         "secondary_sync_ok": 0,
         "secondary_sync_failed": 0,
+        "source_state_update_failed": 0,
     }
     stats.update(fetch_stats)
     log(f"[Queue] total={stats['queue_total']} sources_processed={stats['sources_processed']} sources_skipped={stats['sources_skipped']}")
@@ -4896,11 +5006,26 @@ def main() -> int:
         if state.get("watch_state") is not None:
             update_fields[config.RSS_FIELD_WATCH_STATE] = serialize_watch_state(state["watch_state"])
 
-        update_source_record_fields(
-            tenant_token,
-            source["record_id"],
-            update_fields,
-        )
+        try:
+            updated = update_source_record_fields(
+                tenant_token,
+                source["record_id"],
+                update_fields,
+            )
+        except Exception as exc:
+            stats["source_state_update_failed"] += 1
+            log(
+                "[RSS] source state update failed "
+                f"source={source.get('name') or source.get('feed_url')} error={exc}"
+            )
+            continue
+        if not updated:
+            stats["source_state_update_failed"] += 1
+            log(
+                "[RSS] source state update rejected "
+                f"source={source.get('name') or source.get('feed_url')}"
+            )
+            continue
         log(f"[RSS] {source.get('name') or source.get('feed_url')} new={state['new_count']}")
 
     log(
@@ -4929,7 +5054,8 @@ def main() -> int:
         f"feishu_failed={stats['feishu_create_failed']} "
         f"text_dedup_skipped={stats['text_dedup_skipped']} "
         f"sync_ok={stats['secondary_sync_ok']} "
-        f"sync_failed={stats['secondary_sync_failed']}"
+        f"sync_failed={stats['secondary_sync_failed']} "
+        f"source_state_failed={stats['source_state_update_failed']}"
     )
     fatal_source_failures = source_failures_are_fatal(stats)
     if stats.get("sources_failed") and not fatal_source_failures:
@@ -4942,6 +5068,7 @@ def main() -> int:
         "feishu_create_failed",
         "filtered_log_failed",
         "secondary_sync_failed",
+        "source_state_update_failed",
     )
     has_processing_failure = any(int(stats.get(field, 0) or 0) > 0 for field in failure_fields)
     all_queued_llm_items_failed = (

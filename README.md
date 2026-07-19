@@ -23,7 +23,7 @@
 - 支持 `item_key` 精确去重和 screen 后的 LLM 文本去重：先按关键词记录 / 关键词名称 / 本地归一快照找候选旧 NEWS，再由 LLM 判断是否同一事件。
 - 支持失败条目池 `failed_items`，后续运行会有限重试。
 - 支持飞书提醒记录表、过滤表和可选二次同步表。
-- GitHub Actions 默认每 15 分钟运行 RSS 主流程；本机 `rss-ingest-fetch` 只作为迁移回滚入口。Action 日志保留为 7 天 artifact，非零退出继续通过飞书 webhook 告警。
+- GitHub Actions 默认每 20 分钟运行 RSS 主流程；本机 `rss-ingest-fetch` 只作为迁移回滚入口。Action 日志保留为 7 天 artifact，非零退出继续通过飞书 webhook 告警。
 
 ## 快速开始
 
@@ -183,12 +183,12 @@ NEWS / FILTERED 的「全文」写入前会被限制在 80000 字符内，避免
 
 ## GitHub Actions 与本地数据桥
 
-生产 RSS 入库由 `.github/workflows/rss-ingest.yml` 运行：每小时 `03 / 18 / 33 / 48` 分触发，也支持手动 `workflow_dispatch`。Action 使用 `RSS_SOURCE_MODE=github`，公开 HTTP(S) 源直接抓取；两个本地私有源通过私有 `rss-runtime-data` 仓库中的 `source-map.json` 映射为 XML 文件。未映射的 localhost、本地文件和 Grok feed 会被跳过，不计作源失败。
+生产 RSS 入库由 `.github/workflows/rss-ingest.yml` 运行：每小时 `07 / 27 / 47` 分触发，也支持手动 `workflow_dispatch`。Action 使用 `RSS_SOURCE_MODE=github`，公开 HTTP(S) 源直接抓取；本地私有源通过私有 `rss-runtime-data` 仓库中的 `source-map.json` 映射为 XML 文件，并从同一仓库读取每日 KEYWORD 快照。未映射的 localhost、本地文件和 Grok feed 会被跳过，不计作源失败。
 
 本机只保留数据生产和发布：
 
 - `we-mp-rss` 与 `private-rss` 继续按原频率更新。
-- `tools/local_feed_publisher.py` 在 WSL 中观察本地 RSS 文件和数据库的更新时间；静默窗口结束后校验 XML，内容变化才推送私有数据仓库，并触发 RSS Action。
+- `tools/local_feed_publisher.py` 在 WSL 中观察本地 RSS、Grok feed、外部镜像和 KEYWORD 快照；校验通过且内容变化时推送私有数据仓库。入库由固定 GitHub schedule 负责，发布器不再额外 dispatch，避免同一批数据并发触发两班。
 - 发布器复用 WSL 当前 `gh` 登录态，不把 GitHub Token 写进两个 RSS 容器。
 - 电脑关机时，Action 继续处理公开源；开机后发布器启动会主动对账并补推两个本地源。
 
@@ -196,7 +196,7 @@ KEYWORD 别名归一目前仍由本机 Windows 任务计划程序运行，任务
 
 - 每天北京时间 04:00：先归档 NEWS / FILTERED 中 `30d = 0` 的旧资讯，再清理 `30d = 0`、非 `manual`、且首次出现超过保护期的 KEYWORD，然后增量归一，默认真实写飞书。
 - LLM provider 为 `ark`，模型固定 `deepseek-v4-pro`，不依赖 GitHub Secrets / Vertex / 本机 Ollama。
-- 本地真实写入成功后会更新工作区里的 `data/keyword_snapshot.json`（需要定期提交合回 `main`）；snapshot schema v2 包含 `parent_ids` / `owner_ids`，可供本机 RSS ingest 直接建 KEYWORD 索引。
+- 本地真实写入成功后会更新工作区里的 `data/keyword_snapshot.json`；发布器将其同步到私有运行仓库。snapshot schema v2 包含 `parent_ids` / `owner_ids`，供本机和 GitHub RSS ingest 直接建 KEYWORD 索引。
 - 每周自动全量校准已暂停；需要全量校准时手动运行 `full_run=true`。
 - 手动 dry-run：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_keyword_alias_daily_local.ps1 -DryRun`。
 - 非零退出会经 `task_alerts.py` 发飞书 webhook 告警（同任务 2 小时冷却）。

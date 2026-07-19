@@ -1,5 +1,6 @@
 import json
 import subprocess
+import datetime as dt
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,8 +12,11 @@ from tools.local_feed_publisher import (
     LocalFeedPublisher,
     PublisherConfig,
     SourceSpec,
+    build_prompthub_blog_feed,
     feed_fingerprint,
+    sanitize_we_mp_feed_content,
     validate_feed_bytes,
+    validate_keyword_snapshot_bytes,
     validate_we_mp_feed_content,
     watch_signature,
 )
@@ -72,15 +76,18 @@ def test_from_env_includes_grok_and_substack_snapshots(monkeypatch, tmp_path: Pa
 
     grok_sources = [source for source in config.sources if source.name.startswith("grok-")]
     substack_sources = [source for source in config.sources if source.name.startswith("substack-")]
-    assert len(config.sources) == 18
+    assert len(config.sources) == 19
     assert len(grok_sources) == 9
-    assert len(substack_sources) == 7
+    assert len(substack_sources) == 6
     assert all(source.soft_fail for source in substack_sources)
+    assert any(source.name == "prompthub-blog" and source.soft_fail for source in config.sources)
     assert {source.target for source in grok_sources} == {
         f"feeds/grok/{key}.xml"
         for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")
     }
     assert {grok_dir / f"{key}.xml" for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")} <= set(config.watch_paths)
+    assert any(source.name == "keyword-snapshot" and source.kind == "json" for source in config.sources)
+    assert any(source.name == "prompthub-blog" and source.source == "https://www.prompthub.us/blog" for source in config.sources)
 
 
 def test_validate_feed_bytes_accepts_rss_and_atom() -> None:
@@ -93,6 +100,49 @@ def test_validate_we_mp_feed_content_rejects_transient_empty_bodies() -> None:
     assert validate_we_mp_feed_content(WE_MP_READY) == 1
     with pytest.raises(FeedNotReadyError, match="not ready for 1/1 items"):
         validate_we_mp_feed_content(WE_MP_PENDING)
+
+
+def test_sanitize_we_mp_feed_drops_stale_empty_body() -> None:
+    stale = b"""<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><guid>old</guid><pubDate>Sat, 18 Jul 2026 22:26:17 +0800</pubDate><content:encoded></content:encoded></item><item><guid>ready</guid><content:encoded>&lt;p&gt;body&lt;/p&gt;</content:encoded></item></channel></rss>"""
+
+    sanitized, dropped = sanitize_we_mp_feed_content(
+        stale,
+        now=dt.datetime(2026, 7, 19, 11, 0, tzinfo=dt.timezone(dt.timedelta(hours=8))),
+        grace_seconds=3600,
+    )
+
+    assert dropped == 1
+    assert b"old" not in sanitized
+    assert b"ready" in sanitized
+
+
+def test_sanitize_we_mp_feed_waits_for_fresh_empty_body() -> None:
+    fresh = b"""<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><guid>fresh</guid><pubDate>Sun, 19 Jul 2026 10:45:00 +0800</pubDate><content:encoded></content:encoded></item></channel></rss>"""
+
+    with pytest.raises(FeedNotReadyError, match="fresh items"):
+        sanitize_we_mp_feed_content(
+            fresh,
+            now=dt.datetime(2026, 7, 19, 11, 0, tzinfo=dt.timezone(dt.timedelta(hours=8))),
+            grace_seconds=3600,
+        )
+
+
+def test_validate_keyword_snapshot_bytes_requires_v2_and_enough_entries() -> None:
+    payload = json.dumps(
+        {"schema_version": 2, "entries": [{"record_id": str(i)} for i in range(3)]}
+    ).encode()
+
+    assert validate_keyword_snapshot_bytes(payload, min_entries=3) == 3
+
+
+def test_build_prompthub_blog_feed_converts_official_blog_cards() -> None:
+    page = b"""<html><body><a href="/blog/one" class="blog-post-preview-content"><h2 class="blog-title-list-page">First &amp; Best</h2><p class="blog-date">October 23, 2025</p></a></body></html>"""
+
+    feed = build_prompthub_blog_feed(page, "https://www.prompthub.us/blog")
+
+    assert validate_feed_bytes(feed) == 1
+    assert b"https://www.prompthub.us/blog/one" in feed
+    assert b"First &amp; Best" in feed
 
 
 def test_feed_fingerprint_ignores_feed_level_metadata() -> None:

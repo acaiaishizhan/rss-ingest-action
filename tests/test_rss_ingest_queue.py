@@ -767,6 +767,54 @@ def test_ark_retries_empty_content_parse_failure(monkeypatch):
     assert len(calls) == 2
 
 
+def test_ark_round_robins_starting_key_and_fails_over(monkeypatch):
+    authorizations = []
+
+    class DummyResponse:
+        def __init__(self, status_code=200, text=""):
+            self.status_code = status_code
+            self.text = text
+
+        def json(self):
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": '{"action":"pass","reason":"低价值"}'},
+                }]
+            }
+
+    def fake_post(*args, headers=None, **kwargs):
+        authorizations.append(headers["Authorization"])
+        if len(authorizations) == 3:
+            return DummyResponse(429, '{"error":{"message":"quota"}}')
+        return DummyResponse()
+
+    monkeypatch.setattr(rss_ingest, "_http_post", fake_post)
+    monkeypatch.setattr(rss_ingest.config, "ARK_API_KEY", "ark-key-a", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_API_KEY_2", "ark-key-b", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_MODEL", "deepseek-v4-flash", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_RETRIES", 2, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_PARSE_RETRIES", 1, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_DISABLE_THINKING", True, raising=False)
+    rss_ingest._PROVIDER_KEY_ROTATION_INDEX.clear()
+
+    article = {"title": "t", "content": "c", "link": "https://example.com", "source": "src"}
+    first = rss_ingest.analyze_with_ark_prompt(article, "screen prompt")
+    second = rss_ingest.analyze_with_ark_prompt(article, "screen prompt")
+    third = rss_ingest.analyze_with_ark_prompt(article, "screen prompt")
+
+    assert first["action"] == "pass"
+    assert second["action"] == "pass"
+    assert third["action"] == "pass"
+    assert authorizations == [
+        "Bearer ark-key-a",
+        "Bearer ark-key-b",
+        "Bearer ark-key-a",
+        "Bearer ark-key-b",
+    ]
+
+
 def test_ark_content_filter_empty_content_does_not_retry_or_notify(monkeypatch):
     calls = []
 
