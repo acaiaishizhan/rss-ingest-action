@@ -1,10 +1,12 @@
 import json
 import subprocess
 import datetime as dt
+import urllib.error
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import tools.local_feed_publisher as publisher_module
 
 from tools.local_feed_publisher import (
     FeedNotReadyError,
@@ -12,6 +14,7 @@ from tools.local_feed_publisher import (
     LocalFeedPublisher,
     PublisherConfig,
     SourceSpec,
+    _default_source_reader,
     build_prompthub_blog_feed,
     feed_fingerprint,
     sanitize_we_mp_feed_content,
@@ -28,6 +31,38 @@ RSS_META_ONE = b"""<?xml version="1.0"?><rss><channel><lastBuildDate>one</lastBu
 RSS_META_TWO = b"""<?xml version="1.0"?><rss><channel><lastBuildDate>two</lastBuildDate><item><guid>1</guid></item></channel></rss>"""
 WE_MP_READY = b"""<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><guid>1</guid><content:encoded>&lt;p&gt;full body&lt;/p&gt;</content:encoded></item></channel></rss>"""
 WE_MP_PENDING = b"""<?xml version="1.0"?><rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><guid>1</guid><content:encoded></content:encoded></item></channel></rss>"""
+
+
+def test_default_source_reader_retries_http_429(monkeypatch) -> None:
+    calls = []
+    sleeps = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return RSS_ONE
+
+    def fake_urlopen(request, timeout):
+        calls.append((request, timeout))
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(request.full_url, 429, "rate limited", {"Retry-After": "1"}, None)
+        return Response()
+
+    monkeypatch.setattr(publisher_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(publisher_module.time, "sleep", sleeps.append)
+
+    payload = _default_source_reader(SourceSpec("reddit", "https://example.com/feed", "feed.xml"))
+
+    assert payload == RSS_ONE
+    assert len(calls) == 2
+    assert sleeps == [1.0]
 
 
 class FakeRunner:
@@ -76,11 +111,14 @@ def test_from_env_includes_grok_and_substack_snapshots(monkeypatch, tmp_path: Pa
 
     grok_sources = [source for source in config.sources if source.name.startswith("grok-")]
     substack_sources = [source for source in config.sources if source.name.startswith("substack-")]
-    assert len(config.sources) == 19
+    reddit_sources = [source for source in config.sources if source.name.startswith("reddit-")]
+    assert len(config.sources) == 21
     assert len(grok_sources) == 9
     assert len(substack_sources) == 6
     assert all(source.soft_fail for source in substack_sources)
     assert any(source.name == "prompthub-blog" and source.soft_fail for source in config.sources)
+    assert len(reddit_sources) == 2
+    assert all(source.soft_fail for source in reddit_sources)
     assert {source.target for source in grok_sources} == {
         f"feeds/grok/{key}.xml"
         for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")

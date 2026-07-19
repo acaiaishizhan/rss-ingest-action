@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, replace
@@ -56,6 +57,19 @@ SUBSTACK_MIRROR_FEEDS = (
     ),
 )
 
+REDDIT_MIRROR_FEEDS = (
+    (
+        "reddit-indiehackers-ai-revenue",
+        "https://www.reddit.com/r/indiehackers/search.rss?q=AI%20revenue&restrict_sr=1&sort=new",
+        "feeds/public-mirror/reddit-indiehackers-ai-revenue.xml",
+    ),
+    (
+        "reddit-sideproject-ai-revenue",
+        "https://www.reddit.com/r/SideProject/search.rss?q=AI%20revenue&restrict_sr=1&sort=new",
+        "feeds/public-mirror/reddit-sideproject-ai-revenue.xml",
+    ),
+)
+
 SUBSTACK_FEED_TARGETS = {
     source_url: target
     for _, source_url, target in SUBSTACK_MIRROR_FEEDS
@@ -67,6 +81,10 @@ SUBSTACK_FEED_TARGETS.pop("https://www.prompthub.us/blog", None)
 SUBSTACK_FEED_TARGETS["https://prompthub.substack.com/feed"] = (
     "feeds/public-mirror/prompthub-blog.xml"
 )
+REDDIT_FEED_TARGETS = {
+    source_url: target
+    for _, source_url, target in REDDIT_MIRROR_FEEDS
+}
 
 
 class FeedValidationError(ValueError):
@@ -155,6 +173,10 @@ class PublisherConfig:
             SourceSpec(name, source_url, target, soft_fail=True)
             for name, source_url, target in SUBSTACK_MIRROR_FEEDS
         )
+        reddit_sources = tuple(
+            SourceSpec(name, source_url, target, soft_fail=True)
+            for name, source_url, target in REDDIT_MIRROR_FEEDS
+        )
         state_dir = Path(
             os.getenv(
                 "LOCAL_FEED_PUBLISHER_STATE_DIR",
@@ -184,6 +206,7 @@ class PublisherConfig:
                 SourceSpec("private-rss", _path_as_file_uri(private_feed), "feeds/private-rss.xml"),
                 *grok_sources,
                 *substack_sources,
+                *reddit_sources,
                 SourceSpec(
                     "keyword-snapshot",
                     _path_as_file_uri(keyword_snapshot),
@@ -440,11 +463,25 @@ def _default_source_reader(source: SourceSpec) -> bytes:
     parsed = urlparse(source.source)
     if parsed.scheme == "file":
         return Path(unquote(parsed.path)).read_bytes()
-    request = urllib.request.Request(source.source, headers={"User-Agent": "rss-local-feed-publisher/1.0"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        if getattr(response, "status", 200) != 200:
-            raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')}")
-        return response.read(50 * 1024 * 1024 + 1)
+    request = urllib.request.Request(
+        source.source,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; rss-local-feed-publisher/1.0)"},
+    )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if getattr(response, "status", 200) != 200:
+                    raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')}")
+                return response.read(50 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 and exc.code < 500:
+                raise
+            if attempt >= 2:
+                raise
+            retry_after = str(exc.headers.get("Retry-After") or "").strip()
+            delay = float(retry_after) if retry_after.isdigit() else float(10 * (attempt + 1))
+            time.sleep(min(30.0, max(1.0, delay)))
+    raise RuntimeError(f"remote source retries exhausted: {source.name}")
 
 
 class LocalFeedPublisher:

@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 
 import config
 from feishu_client import get_tenant_access_token, list_bitable_records
-from tools.local_feed_publisher import SUBSTACK_FEED_TARGETS
+from tools.local_feed_publisher import REDDIT_FEED_TARGETS, SUBSTACK_FEED_TARGETS
 
 
 REQUIRED_FEEDS = {
@@ -32,6 +32,7 @@ REQUIRED_FEEDS = {
     r"F:\coding\rss-ingest-local\data\grok-feeds\codex.xml": "feeds/grok/codex.xml",
     r"F:\coding\rss-ingest-local\data\grok-feeds\claude.xml": "feeds/grok/claude.xml",
     **SUBSTACK_FEED_TARGETS,
+    **REDDIT_FEED_TARGETS,
 }
 
 
