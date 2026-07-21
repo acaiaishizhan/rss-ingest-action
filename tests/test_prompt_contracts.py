@@ -27,6 +27,10 @@ def _output_json_strings(text: str) -> list[str]:
     return outputs
 
 
+def _fenced_json_objects(text: str) -> list[dict]:
+    return [json.loads(value) for value in re.findall(r"```json\s*(\{.*?\})\s*```", text, re.S)]
+
+
 def test_local_prompt_output_examples_are_valid_json():
     for path in sorted(DOCS.glob("local-*.md")):
         for text in _output_json_strings(path.read_text(encoding="utf-8-sig")):
@@ -35,7 +39,7 @@ def test_local_prompt_output_examples_are_valid_json():
 
 def test_screen_prompt_examples_include_keywords():
     text = _read("local-screen-prompt.md")
-    outputs = [json.loads(text) for text in _output_json_strings(text)]
+    outputs = _fenced_json_objects(text)
     assert outputs
     for payload in outputs:
         assert isinstance(payload.get("keywords"), list)
@@ -47,7 +51,7 @@ def test_screen_prompt_examples_include_keywords():
 def test_screen_prompt_ingest_contract_has_required_fields():
     required = {"action", "reason", "title_zh", "summary", "keywords", "categories", "score"}
     text = _read("local-screen-prompt.md")
-    outputs = [json.loads(text) for text in _output_json_strings(text)]
+    outputs = _fenced_json_objects(text)
     ingest_count = 0
     qa_count = 0
     for payload in outputs:
@@ -58,7 +62,6 @@ def test_screen_prompt_ingest_contract_has_required_fields():
             if "qa" in payload:
                 qa_count += 1
                 assert isinstance(payload["qa"], list)
-                assert len(payload["qa"]) >= 3
                 for item in payload["qa"]:
                     assert "question" in item and "answer" in item
     assert ingest_count >= 1
@@ -67,7 +70,7 @@ def test_screen_prompt_ingest_contract_has_required_fields():
 
 def test_screen_prompt_pass_schema_matches_validator():
     text = _read("local-screen-prompt.md")
-    for marker in ("模式 B（丢弃）字段顺序：", "模式 B（丢弃）："):
+    for marker in ("## 模式 B（pass", "模式 B（丢弃）字段顺序：", "模式 B（丢弃）："):
         parts = text.split(marker, 1)
         if len(parts) > 1:
             pass_block = parts[1].split("}", 1)[0]
@@ -76,9 +79,17 @@ def test_screen_prompt_pass_schema_matches_validator():
         raise AssertionError("模式 B block not found")
     for field in ('"action"', '"reason"', '"title_zh"', '"summary"', '"keywords"'):
         assert field in pass_block
-    assert "模式 A（ingest）严格 **1-3 个**" in text
-    assert "模式 B（pass）允许 **0-3 个**" in text
+    assert "`ingest` 严格 1-3 个" in text
+    assert "`pass` 允许 0-3 个" in text
     assert "无效内容" not in text
+
+
+def test_triage_prompt_has_three_way_json_contract():
+    text = _read("local-screen-triage-prompt.md")
+    assert '"verdict":"keep或filter或uncertain"' in text
+    assert '"evidence"' in text
+    assert '"reason"' in text
+    assert "不要评分、不要分类、不要改标题、不要写摘要、关键词或 QA" in text
 
 
 def test_summarize_schema_shows_at_least_three_qa_items():

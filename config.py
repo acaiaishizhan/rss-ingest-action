@@ -45,6 +45,7 @@ ENABLE_SECONDARY_SYNC = os.getenv("ENABLE_SECONDARY_SYNC", "false").lower() in {
 FEISHU_SYNC_APP_TOKEN = os.getenv("FEISHU_SYNC_APP_TOKEN", "")
 LOCAL_KEYWORD_BLOCKLIST_PATH = os.getenv("LOCAL_KEYWORD_BLOCKLIST_PATH", str(BASE_DIR / "docs" / "local-keyword-blocklist.txt"))
 LOCAL_KEYWORD_NAME_BLOCKLIST_PATH = os.getenv("LOCAL_KEYWORD_NAME_BLOCKLIST_PATH", str(BASE_DIR / "docs" / "local-keyword-name-blocklist.txt"))
+LOCAL_TRIAGE_PROMPT_PATH = os.getenv("LOCAL_TRIAGE_PROMPT_PATH", str(BASE_DIR / "docs" / "local-screen-triage-prompt.md"))
 LOCAL_SCREEN_PROMPT_PATH = os.getenv("LOCAL_SCREEN_PROMPT_PATH", str(BASE_DIR / "docs" / "local-screen-prompt.md"))
 LOCAL_SUMMARIZE_PROMPT_PATH = os.getenv("LOCAL_SUMMARIZE_PROMPT_PATH", str(BASE_DIR / "docs" / "local-summarize-prompt.md"))
 LOCAL_PROMPT_RULES_PATH = os.getenv("LOCAL_PROMPT_RULES_PATH", str(BASE_DIR / "docs" / "local-prompt-rules.md"))

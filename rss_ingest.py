@@ -453,6 +453,7 @@ def load_local_prompt_sections(path: Any = None) -> Dict[str, Any]:
         return parsed
 
     keyword_path = resolve_local_doc_path(config.LOCAL_KEYWORD_BLOCKLIST_PATH)
+    triage_path = resolve_local_doc_path(config.LOCAL_TRIAGE_PROMPT_PATH)
     screen_path = resolve_local_doc_path(config.LOCAL_SCREEN_PROMPT_PATH)
     summarize_path = resolve_local_doc_path(config.LOCAL_SUMMARIZE_PROMPT_PATH)
     keywords_addendum_raw = str(getattr(config, "LOCAL_SCREEN_KEYWORDS_ADDENDUM_PATH", "") or "").strip()
@@ -460,6 +461,7 @@ def load_local_prompt_sections(path: Any = None) -> Dict[str, Any]:
 
     keyword_blocklist = parse_keyword_blocklist(keyword_path.read_text(encoding="utf-8"))
     keyword_name_blocklist = _load_keyword_name_blocklist()
+    triage_prompt = load_prompt_text_file(triage_path)
     screen_prompt = load_prompt_text_file(screen_path)
     summarize_prompt = load_prompt_text_file(summarize_path)
     if keywords_addendum_path is not None:
@@ -469,14 +471,16 @@ def load_local_prompt_sections(path: Any = None) -> Dict[str, Any]:
     return {
         "keyword_blocklist": keyword_blocklist,
         "keyword_name_blocklist": keyword_name_blocklist,
+        "triage_prompt": triage_prompt,
         "screen_prompt": screen_prompt,
         "summarize_prompt": summarize_prompt,
         "keyword_path": str(keyword_path),
+        "triage_path": str(triage_path),
         "screen_path": str(screen_path),
         "summarize_path": str(summarize_path),
         "screen_keywords_addendum_path": str(keywords_addendum_path) if keywords_addendum_path else "",
         "path": (
-            f"keywords={keyword_path}; screen={screen_path}; "
+            f"keywords={keyword_path}; triage={triage_path}; screen={screen_path}; "
             f"summarize={summarize_path}; "
             f"screen_keywords_addendum={keywords_addendum_path or ''}"
         ),
@@ -617,6 +621,65 @@ def _screen_retry_prompt(screen_prompt: str, error: ValueError) -> str:
         "必须严格包含当前 action 对应的字段；ingest/pass 都必须包含 reason、title_zh、summary、keywords；"
         "ingest 的 keywords 必须是 1-3 个对象，pass 允许 0-3 个对象；每个对象包含 name 和 type。"
     )
+
+
+def validate_triage_result(analysis: Dict[str, Any]) -> Dict[str, str]:
+    verdict = str(analysis.get("verdict") or "").strip().lower()
+    if verdict not in {"keep", "filter", "uncertain"}:
+        raise ValueError(f"invalid triage verdict: {verdict or 'empty'}")
+    evidence = str(analysis.get("evidence") or "").strip()
+    reason = str(analysis.get("reason") or "").strip()
+    if not evidence:
+        raise ValueError("missing triage evidence")
+    if not reason:
+        raise ValueError("missing triage reason")
+    return {"verdict": verdict, "evidence": evidence, "reason": reason}
+
+
+def _triage_retry_prompt(triage_prompt: str, error: ValueError) -> str:
+    return (
+        f"{triage_prompt}\n\n"
+        "【格式重试】\n"
+        f"上一轮输出未通过系统校验：{error}\n"
+        "请重新输出，只返回一个合法 JSON 对象，不要 Markdown，不要解释文字。\n"
+        "必须严格包含 verdict、evidence、reason；verdict 只能是 keep、filter、uncertain。"
+    )
+
+
+def _content_prompt_with_triage(screen_prompt: str, verdict: str) -> str:
+    return (
+        f"{screen_prompt}\n\n"
+        "# 本条初筛上下文（由系统注入）\n"
+        f"initial_verdict: {verdict}\n"
+        "该值只用于选择提示词规定的处理分支，不得写入输出字段。"
+    )
+
+
+def validate_staged_content_result(analysis: Dict[str, Any], triage_verdict: str) -> Dict[str, Any]:
+    validated = validate_screen_result(analysis)
+    if triage_verdict == "keep" and validated["action"] != "ingest":
+        raise ValueError("triage keep cannot be overridden")
+    if validated["action"] == "ingest":
+        if not validated.get("categories"):
+            raise ValueError("missing categories")
+        if parse_score(validated.get("score")) is None:
+            raise ValueError("missing score")
+        if len(normalize_qa(validated.get("qa") or [])) < 3:
+            raise ValueError("qa must contain at least 3 items")
+    return validated
+
+
+def build_triage_filtered_analysis(article: Dict[str, Any], triage: Dict[str, str]) -> Dict[str, Any]:
+    title = str(article.get("title") or "").strip() or "（无标题）"
+    body = clean_html_to_text(str(article.get("content") or "")).strip()
+    summary = truncate_text(body or title, 500)
+    return {
+        "action": "pass",
+        "reason": f"初筛明确过滤：{triage['reason']}",
+        "title_zh": title,
+        "summary": summary,
+        "keywords": [],
+    }
 
 
 def screen_fact_summary(analysis: Dict[str, Any]) -> str:
@@ -1906,6 +1969,115 @@ def ensure_analysis_provider(analysis: Dict[str, Any], provider: str) -> Dict[st
     return mark_analysis_provider(analysis, provider)
 
 
+def analyze_article_staged(
+    article: Dict[str, Any],
+    triage_prompt: str,
+    screen_prompt: str,
+    screen_provider: str,
+    screen_model: str,
+    suppress_notify: bool = False,
+) -> Dict[str, Any]:
+    validate_retries = max(1, config.SCREEN_VALIDATE_RETRIES)
+    request_count = 0
+    triage: Optional[Dict[str, str]] = None
+    last_error: Optional[ValueError] = None
+
+    for attempt in range(validate_retries):
+        request_count += 1
+        attempt_prompt = triage_prompt
+        if attempt > 0 and last_error is not None:
+            attempt_prompt = _triage_retry_prompt(triage_prompt, last_error)
+        triage_result = analyze_with_provider_prompt(
+            article,
+            screen_provider,
+            attempt_prompt,
+            screen_model,
+            suppress_notify=suppress_notify,
+        )
+        if has_failed_categories(triage_result):
+            return mark_analysis_provider(
+                attach_llm_meta(triage_result, llm_request_count=request_count),
+                screen_provider,
+            )
+        try:
+            triage = validate_triage_result(triage_result)
+            break
+        except ValueError as exc:
+            last_error = exc
+            if attempt + 1 < validate_retries:
+                log(f"[LLM] triage validation failed, retrying ({attempt + 1}/{validate_retries}): {exc}")
+                continue
+            return mark_analysis_provider(
+                attach_llm_meta(build_failed_analysis(f"triage: {exc}"), llm_request_count=request_count),
+                screen_provider,
+            )
+
+    if triage is None:
+        return mark_analysis_provider(
+            attach_llm_meta(build_failed_analysis(f"triage: {last_error}"), llm_request_count=request_count),
+            screen_provider,
+        )
+
+    triage_meta = {
+        "staged_screening": True,
+        "triage_verdict": triage["verdict"],
+        "triage_evidence": triage["evidence"],
+        "triage_reason": triage["reason"],
+    }
+    if triage["verdict"] == "filter":
+        return mark_analysis_provider(
+            attach_llm_meta(
+                build_triage_filtered_analysis(article, triage),
+                llm_request_count=request_count,
+                **triage_meta,
+            ),
+            screen_provider,
+        )
+
+    validated_content: Optional[Dict[str, Any]] = None
+    last_error = None
+    content_prompt = _content_prompt_with_triage(screen_prompt, triage["verdict"])
+    for attempt in range(validate_retries):
+        request_count += 1
+        attempt_prompt = content_prompt
+        if attempt > 0 and last_error is not None:
+            attempt_prompt = _screen_retry_prompt(content_prompt, last_error)
+        content_result = analyze_with_provider_prompt(
+            article,
+            screen_provider,
+            attempt_prompt,
+            screen_model,
+            suppress_notify=suppress_notify,
+        )
+        if has_failed_categories(content_result):
+            return mark_analysis_provider(
+                attach_llm_meta(content_result, llm_request_count=request_count, **triage_meta),
+                screen_provider,
+            )
+        try:
+            validated_content = validate_staged_content_result(content_result, triage["verdict"])
+            break
+        except ValueError as exc:
+            last_error = exc
+            if attempt + 1 < validate_retries:
+                log(f"[LLM] content validation failed, retrying ({attempt + 1}/{validate_retries}): {exc}")
+                continue
+            return mark_analysis_provider(
+                attach_llm_meta(build_failed_analysis(f"content: {exc}"), llm_request_count=request_count, **triage_meta),
+                screen_provider,
+            )
+
+    if validated_content is None:
+        return mark_analysis_provider(
+            attach_llm_meta(build_failed_analysis(f"content: {last_error}"), llm_request_count=request_count, **triage_meta),
+            screen_provider,
+        )
+    return mark_analysis_provider(
+        attach_llm_meta(validated_content, llm_request_count=request_count, **triage_meta),
+        screen_provider,
+    )
+
+
 def analyze_article(
     article: Dict[str, Any],
     prompt_config: Any,
@@ -1919,6 +2091,7 @@ def analyze_article(
     target_provider = normalize_provider_name(provider or config.LLM_PROVIDER)
     screen_provider_override = clean_feishu_value(getattr(config, "SCREEN_PROVIDER", "")).strip()
     screen_provider = normalize_provider_name(screen_provider_override) if screen_provider_override else target_provider
+    triage_prompt = str(prompt_config.get("triage_prompt") or "").strip()
     screen_prompt = str(prompt_config.get("screen_prompt") or "").strip()
     summarize_prompt = str(prompt_config.get("summarize_prompt") or "").strip()
     if not screen_prompt or not summarize_prompt:
@@ -1937,13 +2110,23 @@ def analyze_article(
             llm_request_count=0,
         )
 
+    screen_model = provider_model_for_stage(screen_provider, "screen")
+    if screen_provider_override and screen_provider == "deepseek":
+        screen_model = config.DEEPSEEK_SCREEN_MODEL or screen_model
+    if triage_prompt:
+        return analyze_article_staged(
+            article,
+            triage_prompt,
+            screen_prompt,
+            screen_provider,
+            screen_model,
+            suppress_notify=suppress_notify,
+        )
+
     screen_validate_retries = max(1, config.SCREEN_VALIDATE_RETRIES)
     screen_request_count = 0
     validated_screen: Optional[Dict[str, Any]] = None
     last_screen_error: Optional[ValueError] = None
-    screen_model = provider_model_for_stage(screen_provider, "screen")
-    if screen_provider_override and screen_provider == "deepseek":
-        screen_model = config.DEEPSEEK_SCREEN_MODEL or screen_model
     for attempt in range(screen_validate_retries):
         screen_request_count += 1
         attempt_prompt = screen_prompt
@@ -4648,8 +4831,9 @@ def run_llm_queue(
             return keyword_record_ids
 
         score = parse_score(analysis.get("score"))
+        staged_screening = bool(get_llm_meta(analysis).get("staged_screening"))
         created_news = False
-        if score is None or score >= config.FEISHU_MIN_SCORE:
+        if staged_screening or score is None or score >= config.FEISHU_MIN_SCORE:
             if ENABLE_TEXT_DEDUP and dedup_store.size() > 0:
                 title_zh = str(analysis.get("title_zh") or article.get("title") or "").strip()
                 fact_summary = screen_fact_summary(analysis)
