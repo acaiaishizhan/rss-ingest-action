@@ -104,6 +104,8 @@ jobs:
           RSS_INGEST_SKIP_LOCAL_ENV: "true"
           RSS_SOURCE_MODE: github
           DEFAULT_FETCH_INTERVAL_MIN: "0"
+          ENABLE_TRIAGE_SCORE_GATE: "true"
+          TRIAGE_MIN_SCORE: "3.8"
           USE_SYSTEM_PROXY: "false"
           ENABLE_BROWSER_ARTICLE_FETCH: "false"
           ENABLE_X_BROWSER_FALLBACK: "false"

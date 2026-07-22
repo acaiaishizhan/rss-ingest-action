@@ -105,6 +105,17 @@ def test_config_allows_overriding_feishu_min_score():
     assert cfg.FEISHU_MIN_SCORE == 7.5
 
 
+def test_config_allows_overriding_triage_score_gate():
+    cfg = reload_config(
+        {
+            "ENABLE_TRIAGE_SCORE_GATE": "false",
+            "TRIAGE_MIN_SCORE": "4.2",
+        }
+    )
+    assert cfg.ENABLE_TRIAGE_SCORE_GATE is False
+    assert cfg.TRIAGE_MIN_SCORE == 4.2
+
+
 def test_config_allows_overriding_rss_fetch_concurrency():
     cfg = reload_config(
         {

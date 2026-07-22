@@ -623,7 +623,7 @@ def _screen_retry_prompt(screen_prompt: str, error: ValueError) -> str:
     )
 
 
-def validate_triage_result(analysis: Dict[str, Any]) -> Dict[str, str]:
+def validate_triage_result(analysis: Dict[str, Any]) -> Dict[str, Any]:
     verdict = str(analysis.get("verdict") or "").strip().lower()
     if verdict not in {"keep", "filter", "uncertain"}:
         raise ValueError(f"invalid triage verdict: {verdict or 'empty'}")
@@ -633,7 +633,10 @@ def validate_triage_result(analysis: Dict[str, Any]) -> Dict[str, str]:
         raise ValueError("missing triage evidence")
     if not reason:
         raise ValueError("missing triage reason")
-    return {"verdict": verdict, "evidence": evidence, "reason": reason}
+    score = parse_score(analysis.get("score"))
+    if score is None or score < 0 or score > 10:
+        raise ValueError("invalid triage score")
+    return {"verdict": verdict, "score": score, "evidence": evidence, "reason": reason}
 
 
 def _triage_retry_prompt(triage_prompt: str, error: ValueError) -> str:
@@ -642,7 +645,8 @@ def _triage_retry_prompt(triage_prompt: str, error: ValueError) -> str:
         "【格式重试】\n"
         f"上一轮输出未通过系统校验：{error}\n"
         "请重新输出，只返回一个合法 JSON 对象，不要 Markdown，不要解释文字。\n"
-        "必须严格包含 verdict、evidence、reason；verdict 只能是 keep、filter、uncertain。"
+        "必须严格包含 verdict、score、evidence、reason；verdict 只能是 keep、filter、uncertain，"
+        "score 必须是 0-10 之间的数字。"
     )
 
 
@@ -669,13 +673,20 @@ def validate_staged_content_result(analysis: Dict[str, Any], triage_verdict: str
     return validated
 
 
-def build_triage_filtered_analysis(article: Dict[str, Any], triage: Dict[str, str]) -> Dict[str, Any]:
+def build_triage_filtered_analysis(
+    article: Dict[str, Any],
+    triage: Dict[str, Any],
+    *,
+    low_score: bool = False,
+) -> Dict[str, Any]:
     title = str(article.get("title") or "").strip() or "（无标题）"
     body = clean_html_to_text(str(article.get("content") or "")).strip()
     summary = truncate_text(body or title, 500)
+    reason_prefix = "初筛低分淘汰" if low_score else "初筛明确过滤"
     return {
         "action": "pass",
-        "reason": f"初筛明确过滤：{triage['reason']}",
+        "score": triage["score"],
+        "reason": f"{reason_prefix}：{triage['reason']}",
         "title_zh": title,
         "summary": summary,
         "keywords": [],
@@ -1979,7 +1990,7 @@ def analyze_article_staged(
 ) -> Dict[str, Any]:
     validate_retries = max(1, config.SCREEN_VALIDATE_RETRIES)
     request_count = 0
-    triage: Optional[Dict[str, str]] = None
+    triage: Optional[Dict[str, Any]] = None
     last_error: Optional[ValueError] = None
 
     for attempt in range(validate_retries):
@@ -2021,6 +2032,7 @@ def analyze_article_staged(
     triage_meta = {
         "staged_screening": True,
         "triage_verdict": triage["verdict"],
+        "triage_score": triage["score"],
         "triage_evidence": triage["evidence"],
         "triage_reason": triage["reason"],
     }
@@ -2029,6 +2041,28 @@ def analyze_article_staged(
             attach_llm_meta(
                 build_triage_filtered_analysis(article, triage),
                 llm_request_count=request_count,
+                filter_method="初筛过滤",
+                filter_reason=f"初筛明确过滤：{triage['reason']}",
+                **triage_meta,
+            ),
+            screen_provider,
+        )
+
+    triage_score_gate_enabled = bool(getattr(config, "ENABLE_TRIAGE_SCORE_GATE", True))
+    triage_min_score = float(getattr(config, "TRIAGE_MIN_SCORE", 3.8))
+    if triage_score_gate_enabled and triage["score"] < triage_min_score:
+        low_score_reason = (
+            f"初筛评分低于入库阈值：{triage['score']:.1f} < {triage_min_score:.1f}；"
+            f"{triage['reason']}"
+        )
+        return mark_analysis_provider(
+            attach_llm_meta(
+                build_triage_filtered_analysis(article, triage, low_score=True),
+                llm_request_count=request_count,
+                filter_method="初筛低分",
+                filter_reason=low_score_reason,
+                low_score_filtered=True,
+                score=triage["score"],
                 **triage_meta,
             ),
             screen_provider,
@@ -4750,6 +4784,8 @@ def run_llm_queue(
                 )
             with lock:
                 stats["llm_filtered"] += 1
+                if get_llm_meta(analysis).get("low_score_filtered"):
+                    stats["entries_low_score"] = stats.get("entries_low_score", 0) + 1
             recorded = record_filtered_outcome(
                 article,
                 analysis,

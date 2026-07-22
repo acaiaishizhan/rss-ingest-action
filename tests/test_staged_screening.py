@@ -29,7 +29,7 @@ def _qa():
 def test_staged_keep_cannot_be_overridden(monkeypatch):
     calls = []
     responses = [
-        {"verdict": "keep", "evidence": "工具能力变化", "reason": "明确命中"},
+        {"verdict": "keep", "score": 6.2, "evidence": "工具能力变化", "reason": "明确命中"},
         {
             "action": "pass",
             "reason": "内容太薄",
@@ -66,7 +66,7 @@ def test_staged_keep_cannot_be_overridden(monkeypatch):
 
 def test_staged_uncertain_can_pass(monkeypatch):
     responses = [
-        {"verdict": "uncertain", "evidence": "只公布融资金额", "reason": "可能只是资本信号"},
+        {"verdict": "uncertain", "score": 4.0, "evidence": "只公布融资金额", "reason": "可能只是资本信号"},
         {
             "action": "pass",
             "reason": "纯资本/治理/规模，未命中六类救回",
@@ -92,12 +92,39 @@ def test_staged_filter_stops_after_triage(monkeypatch):
 
     def fake_analyze(*args, **kwargs):
         calls.append(args[2])
-        return {"verdict": "filter", "evidence": "只有一句感谢", "reason": "真正空内容"}
+        return {"verdict": "filter", "score": 1.0, "evidence": "只有一句感谢", "reason": "真正空内容"}
 
     monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
     result = rss_ingest.analyze_article(ARTICLE, _prompts(), provider="deepseek", include_summary=False)
 
     assert result["action"] == "pass"
     assert result["_llm_meta"]["triage_verdict"] == "filter"
+    assert result["_llm_meta"]["llm_request_count"] == 1
+    assert calls == ["triage prompt"]
+
+
+def test_staged_low_triage_score_stops_before_content(monkeypatch):
+    calls = []
+
+    def fake_analyze(*args, **kwargs):
+        calls.append(args[2])
+        return {
+            "verdict": "uncertain",
+            "score": 3.7,
+            "evidence": "只有活动议题",
+            "reason": "评分停在 S2 噪音档",
+        }
+
+    monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
+    monkeypatch.setattr(rss_ingest.config, "ENABLE_TRIAGE_SCORE_GATE", True, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "TRIAGE_MIN_SCORE", 3.8, raising=False)
+    result = rss_ingest.analyze_article(ARTICLE, _prompts(), provider="deepseek", include_summary=False)
+
+    assert result["action"] == "pass"
+    assert result["score"] == 3.7
+    assert result["_llm_meta"]["triage_verdict"] == "uncertain"
+    assert result["_llm_meta"]["triage_score"] == 3.7
+    assert result["_llm_meta"]["low_score_filtered"] is True
+    assert result["_llm_meta"]["filter_method"] == "初筛低分"
     assert result["_llm_meta"]["llm_request_count"] == 1
     assert calls == ["triage prompt"]

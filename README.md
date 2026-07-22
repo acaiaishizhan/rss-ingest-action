@@ -10,9 +10,10 @@
 - `grok_watch.py` 定时通过公共 `grok-browser` 工具调用网页端 Grok Expert 搜 X 真料；`grok-browser` 默认以 offscreen/no-focus 方式运行并在完成后清理命令页，经 fxtwitter 验真和多层去重后写本地 RSS feed，由主流程当普通源消费；运维说明见 [docs/grok-watch.md](docs/grok-watch.md)。
 - 使用本地提示词文件做 screen 分析：
   - `docs/local-keyword-blocklist.txt`
+  - `docs/local-screen-triage-prompt.md`
   - `docs/local-screen-prompt.md`
 - `docs/local-summarize-prompt.md` 仅作为旧 fallback：screen 未输出 `qa` 时才会补跑。
-- screen 阶段一次输出去噪 + 评分 + 分类 + `title_zh + summary + keywords + qa`；`summary` 是事实摘要，NEWS / FILTERED 表都写入「摘要」，NEWS 的 `QA总结` 字段展示为问答块。
+- screen 先在同一次初筛中输出 `keep / filter / uncertain` 与信号评分；低于 `TRIAGE_MIN_SCORE` 的条目直接进入 FILTERED。其余 `keep / uncertain` 再由内容处理一次输出内容评分、分类和 `title_zh + summary + keywords + qa`，且只允许 `uncertain` 在内容处理时改判 `pass`。内容处理评分只作字段，不再次决定去留。
 - screen 阶段同时输出 `keywords: [{name, type}]`，写入新闻表和过滤表的 `关键词` 多选字段，并可通过 `关键词记录` 关联到 KEYWORD 表做归一化。
 - KEYWORD 表支持脚本同步 `NEWS次数`、`FILTERED次数`、`最后出现`、`热度样本`；这些是快照字段，不是实时趋势。
 - `merge_keywords.py` 支持关键词合并 fixture 测试、真实候选 dry-run、核心计数字段同步，以及把别名发现结果批量追加到 KEYWORD「归一项」。
@@ -86,6 +87,8 @@ KEYWORD_SNAPSHOT_GIT_FETCH_INTERVAL_MIN = 60
 KEYWORD_RUNTIME_SNAPSHOT_PATH = .cache/keyword_snapshot_runtime.json
 LLM_CONCURRENCY = 4
 FEISHU_MIN_SCORE = 6.0
+ENABLE_TRIAGE_SCORE_GATE = true
+TRIAGE_MIN_SCORE = 3.8
 SCREEN_PROVIDER =
 ARK_API_KEY =
 ARK_BASE_URL = https://ark.cn-beijing.volces.com/api/coding/v3
@@ -111,7 +114,7 @@ ARK_MODEL = deepseek-v4-flash
 4. 跳过已存在新闻和不满足时间窗口的条目。
 5. 进入 LLM 队列并发处理。
 6. 命中关键词或业务规则的条目写入过滤表。
-7. 达到 `FEISHU_MIN_SCORE` 的条目写入新闻表。
+7. 三态初筛评分达到 `TRIAGE_MIN_SCORE` 后继续处理；`uncertain` 由内容处理终审，最终通过者写入新闻表。
 8. 更新 RSS 源表状态、游标和失败条目池。
 9. 可选把新增新闻同步到二次表。
 10. 本机 `keyword-alias-daily` 定时任务做关键词维护：每天先按 NEWS / FILTERED 的 `30d = 0` 归档旧资讯到季度表，再清理 30d 空关键词、增量归一新增词、补父级 / 归属关系；真实写入成功后更新 `data/keyword_snapshot.json`。GitHub Action 仅保留手动触发，全量校准需要时手动 `full_run=true`。

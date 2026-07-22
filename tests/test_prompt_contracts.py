@@ -87,9 +87,12 @@ def test_screen_prompt_pass_schema_matches_validator():
 def test_triage_prompt_has_three_way_json_contract():
     text = _read("local-screen-triage-prompt.md")
     assert '"verdict":"keep或filter或uncertain"' in text
+    assert '"score":0.0' in text
     assert '"evidence"' in text
     assert '"reason"' in text
-    assert "不要评分、不要分类、不要改标题、不要写摘要、关键词或 QA" in text
+    assert "先判断 keep、filter、uncertain 并锁定 verdict，再独立给出 signal score" in text
+    assert "score 必须 >= 5.0" in text
+    assert "S1 八类全部未命中时，才评噪音" in text
 
 
 def test_summarize_schema_shows_at_least_three_qa_items():
