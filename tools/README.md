@@ -9,10 +9,10 @@
 
 ## 常用工具
 
-- `run_keyword_alias_daily.py`：每天 04:00 的关键词维护流水线。先归档 NEWS / FILTERED 中 `30d=0` 的旧资讯，再删 `30d=0`、非 manual、且首次出现超过保护期的 KEYWORD，然后做归一、改链、父级 / 归属补链、核心字段同步和巡检，真实写入成功后更新快照。
+- `run_keyword_alias_daily.py`：每天 04:00 的关键词维护流水线。先直接删除 NEWS / FILTERED 中 `30d=0` 的旧资讯，再删 `30d=0`、非 manual、且首次出现超过保护期的 KEYWORD，然后做归一、改链、父级 / 归属补链、核心字段同步和巡检，真实写入成功后更新快照。
 - `run_keyword_alias_daily_local.ps1` / `register_keyword_alias_daily_task.ps1`：本机 Windows 任务计划入口，用火山 Ark `deepseek-v4-pro`（subagent `dsp` 同款 Pro lane）跑同一套关键词维护流水线。
 - `run_keyword_audit_repair.py`：专项修复 KEYWORD 重复和 zero-link 老词。流程是 audit -> duplicate audit -> duplicate relink/merged note -> stale zero-link cleanup -> parent rollup -> audit；默认 dry-run，传 `--apply` 才写飞书。本机入口是 `run_keyword_audit_repair_local.ps1`，计划任务注册脚本是 `register_keyword_audit_repair_task.ps1`。
-- `archive_old_records.py`：把 NEWS / FILTERED 中 `30d=0` 的旧资讯归档到季度表（如 `2026Q2` / `2026Q2回收站`）。默认 dry-run；真实 `--apply` 时先写归档表再删主表，归档字段不带 `关键词记录`。
+- `delete_expired_records.py`：直接删除 NEWS / FILTERED 中 `30d=0` 的旧资讯，不再同步或迁移到季度表 / 回收站表。默认 dry-run；真实 `--apply` 才批量删除。
 - `cleanup_stale_keywords.py`：清理 KEYWORD 表里 `30d=0`、非 manual、且首次出现超过保护期的关键词；没有 `30d` 字段时不删。
 - `apply_keyword_alias_links.py`：只处理 NEWS / FILTERED 的关键词记录，把别名记录改链到规范词；支持 `--recent-hours` 限制最近记录。
 - `keyword_parent_rollup.py`：维护 KEYWORD 的 `父关键词`、`归属关键词` 和自身 / 总热度公式。

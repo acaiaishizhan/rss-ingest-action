@@ -1,0 +1,106 @@
+name: keyword-alias-daily
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without writing Feishu"
+        required: false
+        default: "false"
+      type_filter:
+        description: "Optional comma-separated keyword types, e.g. model,product"
+        required: false
+        default: ""
+      full_run:
+        description: "Ignore snapshot and run full keyword scan"
+        required: false
+        default: "false"
+
+concurrency:
+  group: keyword-alias-daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run daily keyword alias normalization
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
+          FEISHU_NEWS_TABLE_ID: ${{ secrets.FEISHU_NEWS_TABLE_ID }}
+          FEISHU_FILTERED_TABLE_ID: ${{ secrets.FEISHU_FILTERED_TABLE_ID }}
+          FEISHU_KEYWORD_TABLE_ID: ${{ secrets.FEISHU_KEYWORD_TABLE_ID }}
+          LLM_PROVIDER: deepseek
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-v4-pro' }}
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          TYPE_FILTER="${{ github.event.inputs.type_filter || '' }}"
+          FULL_RUN="${{ github.event.inputs.full_run || 'false' }}"
+          ARGS=(
+            --out-dir out/keyword-alias-daily
+            --provider deepseek
+            --model "$DEEPSEEK_MODEL"
+            --keyword-snapshot-path data/keyword_snapshot.json
+            --incremental-hours 25
+            --record-recent-hours 25
+            --record-max-pages 10
+            --max-pages 80
+            --page-size 500
+            --noise-batch-size 500
+          )
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          if [ "$FULL_RUN" = "true" ]; then
+            ARGS+=(--incremental-hours 0 --record-recent-hours 0 --record-max-pages 80)
+          fi
+          if [ -n "$TYPE_FILTER" ]; then
+            ARGS+=(--type-filter "$TYPE_FILTER")
+          fi
+          python tools/run_keyword_alias_daily.py "${ARGS[@]}"
+      - name: Commit keyword snapshot
+        if: success() && github.event.inputs.dry_run != 'true'
+        run: |
+          if git diff --quiet -- data/keyword_snapshot.json; then
+            echo "No keyword snapshot changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/keyword_snapshot.json
+          git commit -m "chore: update keyword snapshot"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push || {
+            echo "Initial push failed; retrying after rebase."
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push
+          }
+      - name: Write job summary
+        if: always()
+        run: |
+          if [ -f out/keyword-alias-daily/summary.md ]; then
+            cat out/keyword-alias-daily/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload alias logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyword-alias-daily-${{ github.run_id }}
+          path: |
+            out/keyword-alias-daily/
+            out/keyword-alias-daily/keyword_snapshot.next.json
+          if-no-files-found: warn

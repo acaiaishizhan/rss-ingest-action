@@ -200,9 +200,9 @@ LLM 原始关键词 + 父关键词 + 归属关键词
 
 这样 `Claude`、`Opus`、`Anthropic` 的 `30d` 会由飞书关联和公式自动更新。脚本使用飞书批量更新；如果某一批失败，会拆成单条回退。
 
-## 旧资讯季度归档
+## 旧资讯保留期清理
 
-`tools/archive_old_records.py` 负责把 NEWS / FILTERED 主表中过了保留窗口的记录归档到季度表，避免历史新闻长期挤占 KEYWORD 反向关联的 500 条可见容量。
+`tools/delete_expired_records.py` 负责直接删除 NEWS / FILTERED 主表中过了保留窗口的记录，避免历史新闻长期挤占 KEYWORD 反向关联的 500 条可见容量。记录不会再同步或迁移到季度表 / 回收站表。
 
 判断规则：
 
@@ -210,33 +210,19 @@ LLM 原始关键词 + 父关键词 + 归属关键词
 NEWS / FILTERED 单条记录的 30d = 0
 ```
 
-目标表按记录时间决定：
-
-```text
-NEWS      -> 2026Q2、2026Q3 ...
-FILTERED  -> 2026Q2回收站、2026Q3回收站 ...
-```
-
-时间来源优先级：
-
-```text
-发布时间 -> 创建时间
-```
-
 命令：
 
 ```powershell
-.\.venv\Scripts\python.exe tools\archive_old_records.py --output out\archive-old-records-dryrun.json
-.\.venv\Scripts\python.exe tools\archive_old_records.py --apply --output out\archive-old-records-apply.json
+.\.venv\Scripts\python.exe tools\delete_expired_records.py --output out\delete-expired-records-dryrun.json
+.\.venv\Scripts\python.exe tools\delete_expired_records.py --apply --output out\delete-expired-records-apply.json
 ```
 
 注意：
 
 - 默认用飞书服务端筛选 `30d = 0`，不是扫全表；`--scan-all` 仅用于排障复核。
-- 归档字段不带 `关键词记录`，避免季度历史表继续污染 KEYWORD 的反向关联。
-- 使用 `item_key` 做幂等；如果记录已经在目标季度表中，apply 会只删除主表残留。
-- 目标季度表不存在时会报告 `missing_tables`，不会删除主表记录。首次换季前需要准备好 `YYYYQn` / `YYYYQn回收站` 表。
-- 这一步归档的是 NEWS / FILTERED 资讯，不会删除 KEYWORD。
+- 这一步删除的是 NEWS / FILTERED 资讯，不会删除 KEYWORD。
+- dry-run 只输出待删除清单；只有 `--apply` 才会批量删除。
+- 删除不依赖 `item_key`，也不依赖任何季度表或回收站表。
 
 ## 30d 空关键词清理
 
@@ -335,9 +321,9 @@ FILTERED  -> 2026Q2回收站、2026Q3回收站 ...
 
 日常 KEYWORD 归一由本机 Windows 任务计划程序运行，任务名 `keyword-alias-daily`，入口为 `tools\run_keyword_alias_daily_local.ps1`：
 
-- 每天北京时间 04:00：先归档 NEWS / FILTERED 中 `30d = 0` 的旧资讯，再删 `30d = 0`、非 `manual`、且首次出现超过 48 小时保护期的 KEYWORD，然后增量归一，默认真实写飞书。
+- 每天北京时间 04:00：先直接删除 NEWS / FILTERED 中 `30d = 0` 的旧资讯，不再同步或迁移到季度表 / 回收站表；再删 `30d = 0`、非 `manual`、且首次出现超过 48 小时保护期的 KEYWORD，然后增量归一，默认真实写飞书。
 - LLM provider 为 `ark`（Volcengine Ark Coding Plan），模型固定 `deepseek-v4-pro`。
-- 每次归一后会执行 alias link、parent rollup、core field sync、expanded keyword links 和 keyword audit；真实写入模式下 audit fail 时工作流失败并上传报告，`dry_run=true` 只报告不阻断。旧资讯归档是流水线第一步，目标季度表缺失时会在 summary 里显示 `missing_tables` 并阻止 apply 删除源记录。
+- 每次归一后会执行 alias link、parent rollup、core field sync、expanded keyword links 和 keyword audit；真实写入模式下 audit fail 时工作流失败并上传报告，`dry_run=true` 只报告不阻断。旧资讯保留期清理是流水线第一步，真实写入时直接删除 `30d = 0` 的 NEWS / FILTERED 记录。
 - 每周自动全量校准已暂停；需要全量校准时手动运行 `full_run=true`。
 - 手动 dry-run：
 

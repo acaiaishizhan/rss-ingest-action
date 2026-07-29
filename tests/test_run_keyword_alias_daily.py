@@ -10,7 +10,7 @@ from tools import run_keyword_alias_daily  # noqa: E402
 
 
 WRITE_STEP_DRY_RUN_FLAGS = {
-    "archive-old-records": "",
+    "delete-expired-records": "",
     "keyword-cleanup": "",
     "alias-update-apply": "--alias-update-apply-dry-run",
     "keyword-alias-links": "",
@@ -20,7 +20,7 @@ WRITE_STEP_DRY_RUN_FLAGS = {
 }
 
 APPLY_STEPS = {
-    "archive-old-records",
+    "delete-expired-records",
     "keyword-cleanup",
     "keyword-alias-links",
     "keyword-parent-rollup",
@@ -29,7 +29,7 @@ APPLY_STEPS = {
 
 
 def test_summarize_outputs_includes_parent_rollup_and_audit(tmp_path):
-    archive_path = tmp_path / "archive.json"
+    expired_path = tmp_path / "expired.json"
     cleanup_path = tmp_path / "cleanup.json"
     noise_path = tmp_path / "noise.json"
     alias_path = tmp_path / "alias.json"
@@ -41,14 +41,13 @@ def test_summarize_outputs_includes_parent_rollup_and_audit(tmp_path):
     audit_path = tmp_path / "audit.json"
     for path in [alias_path, preview_path, apply_path, link_path]:
         path.write_text("{}", encoding="utf-8")
-    archive_path.write_text(
+    expired_path.write_text(
         json.dumps(
             {
                 "source_query": "filtered-30d-zero",
                 "source_scanned": {"NEWS": 2},
-                "plan": {"count": 2, "needs_create": 1, "already_archived": 1},
-                "applied": {"created": 1, "deleted": 2},
-                "missing_tables": [],
+                "plan": {"count": 2, "by_source": {"NEWS": 2}},
+                "applied": {"deleted": 2},
                 "failed": [],
             }
         ),
@@ -64,7 +63,7 @@ def test_summarize_outputs_includes_parent_rollup_and_audit(tmp_path):
     audit_path.write_text(json.dumps({"healthy": True, "compact_duplicate_groups": 0}), encoding="utf-8")
 
     summary = run_keyword_alias_daily.summarize_outputs(
-        archive_path,
+        expired_path,
         cleanup_path,
         noise_path,
         alias_path,
@@ -78,8 +77,9 @@ def test_summarize_outputs_includes_parent_rollup_and_audit(tmp_path):
     )
 
     assert summary["cleanup"]["delete_count"] == 4
-    assert summary["archive"]["planned"] == 2
-    assert summary["archive"]["deleted"] == 2
+    assert summary["expired_records"]["planned"] == 2
+    assert summary["expired_records"]["by_source"] == {"NEWS": 2}
+    assert summary["expired_records"]["deleted"] == 2
     assert summary["cleanup"]["deleted"] == 4
     assert summary["noise_audit"]["recent_keyword_count"] == 5
     assert summary["noise_audit"]["candidate_count"] == 3
@@ -226,7 +226,7 @@ def test_build_steps_apply_adds_apply_only_to_expected_steps(tmp_path):
     assert "keyword-core-sync" in commands
 
 
-def test_archive_step_runs_before_keyword_cleanup(tmp_path):
+def test_expired_record_deletion_runs_before_keyword_cleanup(tmp_path):
     args = run_keyword_alias_daily.parse_args([])
     paths = run_keyword_alias_daily.DailyPaths.from_out_dir(tmp_path)
 
@@ -238,10 +238,10 @@ def test_archive_step_runs_before_keyword_cleanup(tmp_path):
     )
     names = [step.name for step in steps]
 
-    assert names.index("archive-old-records") < names.index("keyword-cleanup")
-    archive_command = {step.name: step.command for step in steps}["archive-old-records"]
-    assert "tools/archive_old_records.py" in archive_command
-    assert "--scan-all" not in archive_command
+    assert names.index("delete-expired-records") < names.index("keyword-cleanup")
+    delete_command = {step.name: step.command for step in steps}["delete-expired-records"]
+    assert "tools/delete_expired_records.py" in delete_command
+    assert "--scan-all" not in delete_command
 
 
 def test_main_refreshes_run_snapshot_with_alias_preview_before_link_step(monkeypatch, tmp_path):
