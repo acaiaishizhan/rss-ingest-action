@@ -43,17 +43,19 @@ jobs:
           FEISHU_NEWS_TABLE_ID: ${{ secrets.FEISHU_NEWS_TABLE_ID }}
           FEISHU_FILTERED_TABLE_ID: ${{ secrets.FEISHU_FILTERED_TABLE_ID }}
           FEISHU_KEYWORD_TABLE_ID: ${{ secrets.FEISHU_KEYWORD_TABLE_ID }}
-          LLM_PROVIDER: deepseek
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-v4-pro' }}
+          LLM_PROVIDER: ark
+          ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+          ARK_API_KEY_2: ${{ secrets.ARK_API_KEY_2 }}
+          ARK_BASE_URL: ${{ secrets.ARK_BASE_URL }}
+          ARK_MODEL: deepseek-v4-pro
         run: |
           DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
           TYPE_FILTER="${{ github.event.inputs.type_filter || '' }}"
           FULL_RUN="${{ github.event.inputs.full_run || 'false' }}"
           ARGS=(
             --out-dir out/keyword-alias-daily
-            --provider deepseek
-            --model "$DEEPSEEK_MODEL"
+            --provider ark
+            --model "$ARK_MODEL"
             --keyword-snapshot-path data/keyword_snapshot.json
             --incremental-hours 25
             --record-recent-hours 25
