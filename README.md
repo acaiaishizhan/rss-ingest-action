@@ -2,7 +2,7 @@
 
 本项目把飞书多维表中的 RSS 源同步为结构化资讯：抓取 RSS、按本地提示词筛选和总结、去重后写入飞书新闻表，并可把低分或过滤内容写入过滤表。
 
-当前 `main` 已包含 RSS 主流程、GitHub Actions 云端运行模式、关键词抽取、KEYWORD 表归一化关联、LLM 文本去重、每日关键词别名归一（本机定时任务）、父关键词 / 归属关键词补链、旧资讯季度归档、30d 空关键词清理、KEYWORD 快照和最近记录改链。不包含 KEYWORD_DAILY_STATS、`event_heat` 或话题聚类。关键词运维入口见 [docs/keyword-operations.md](docs/keyword-operations.md)。
+当前 `main` 已包含 RSS 主流程、GitHub Actions 云端运行模式、关键词抽取、KEYWORD 表归一化关联、LLM 文本去重、每日关键词别名归一、父关键词 / 归属关键词补链、旧资讯保留期清理、30d 空关键词清理、KEYWORD 快照和最近记录改链。不包含 KEYWORD_DAILY_STATS、`event_heat` 或话题聚类。关键词运维入口见 [docs/keyword-operations.md](docs/keyword-operations.md)。
 
 ## 功能概览
 
@@ -16,7 +16,7 @@
 - screen 阶段同时输出 `keywords: [{name, type}]`，写入新闻表和过滤表的 `关键词` 多选字段，并可通过 `关键词记录` 关联到 KEYWORD 表做归一化。
 - KEYWORD 表支持脚本同步 `NEWS次数`、`FILTERED次数`、`最后出现`、`热度样本`；这些是快照字段，不是实时趋势。
 - `merge_keywords.py` 支持关键词合并 fixture 测试、真实候选 dry-run、核心计数字段同步，以及把别名发现结果批量追加到 KEYWORD「归一项」。
-- 本机任务计划程序 `keyword-alias-daily` 每天北京时间 04:00 做关键词维护（`tools/run_keyword_alias_daily_local.ps1`）：先把 NEWS / FILTERED 中 `30d = 0` 的旧资讯归档到季度表，再删除 `30d = 0`、非 `manual`、且首次出现超过保护期的 KEYWORD，之后做别名归一、改链、父关键词 / 归属关键词补链和巡检；`.github/workflows/keyword-alias-daily.yml` 仅保留手动触发。
+- 关键词维护流水线先直接删除 NEWS / FILTERED 中 `30d = 0` 的旧资讯，不再同步或迁移到季度表 / 回收站表；再删除 `30d = 0`、非 `manual`、且首次出现超过保护期的 KEYWORD，之后做别名归一、改链、父关键词 / 归属关键词补链和巡检。
 - RSS 主流程默认 LLM provider 为 Volcengine Ark Coding Plan 的 `deepseek-v4-flash`（subagent `d` 同款 Flash lane）；本机关键词维护脚本使用 Ark `deepseek-v4-pro`（`dsp` 同款 Pro lane）。手动触发的关键词维护 GitHub Action 走 DeepSeek 直连（`DEEPSEEK_API_KEY` secret），也可显式切换 Gemini、Ark、iFlow、OpenAI、Zhipu。
 - RSS 源抓取支持并发，默认 `RSS_FETCH_CONCURRENCY=20`，同一 host 默认最多并发 4 个请求；超时源会用 4 并发补跑一次，避免本地 RSSHub 被打满后直接漏源。
 - 对 RSS 正文为空或极短的条目支持网页全文 fallback：重点源使用定向解析，其他公开 HTTP(S) 文章页使用保守通用解析；所有 HTTP 抓取都会拒绝内网/保留地址、逐跳校验重定向，并限制响应大小。
@@ -114,7 +114,7 @@ ARK_MODEL = deepseek-v4-flash
 7. 达到 `FEISHU_MIN_SCORE` 的条目写入新闻表。
 8. 更新 RSS 源表状态、游标和失败条目池。
 9. 可选把新增新闻同步到二次表。
-10. 本机 `keyword-alias-daily` 定时任务做关键词维护：每天先按 NEWS / FILTERED 的 `30d = 0` 归档旧资讯到季度表，再清理 30d 空关键词、增量归一新增词、补父级 / 归属关系；真实写入成功后更新 `data/keyword_snapshot.json`。GitHub Action 仅保留手动触发，全量校准需要时手动 `full_run=true`。
+10. `keyword-alias-daily` 做关键词维护：先直接删除 NEWS / FILTERED 中 `30d = 0` 的旧资讯，再清理 30d 空关键词、增量归一新增词、补父级 / 归属关系；真实写入成功后更新 `data/keyword_snapshot.json`。
 
 RSS ingest 默认优先用 KEYWORD snapshot 建索引：先从 git 的 `origin/main:data/keyword_snapshot.json` 读取已提交的基线（`KEYWORD_SNAPSHOT_GIT_REF` 可改），再用 `.cache/keyword_snapshot_runtime.json`，最后才回源飞书 KEYWORD 表。`git fetch` 默认按 `KEYWORD_SNAPSHOT_GIT_FETCH_INTERVAL_MIN=60` 跨进程节流，避免每个十分钟任务都访问远端；每轮仍执行本地 `git show`。新 KEYWORD 创建成功后会写入运行时 snapshot，避免下一轮重复创建。本机日跑 4 点更新的是工作区的 `data/keyword_snapshot.json`，需要定期提交并合回 `main`，否则 git 基线会越来越旧、只能靠运行时 snapshot 兜底。`KEYWORD_SNAPSHOT_MIN_ENTRIES` 默认 1000，避免误用测试残留或损坏的小 snapshot。
 
@@ -194,7 +194,7 @@ NEWS / FILTERED 的「全文」写入前会被限制在 80000 字符内，避免
 
 KEYWORD 别名归一目前仍由本机 Windows 任务计划程序运行，任务名 `keyword-alias-daily`，入口为 `tools\run_keyword_alias_daily_local.ps1`。本地任务使用 Volcengine Ark Coding Plan：
 
-- 每天北京时间 04:00：先归档 NEWS / FILTERED 中 `30d = 0` 的旧资讯，再清理 `30d = 0`、非 `manual`、且首次出现超过保护期的 KEYWORD，然后增量归一，默认真实写飞书。
+- 每天北京时间 04:00：先直接删除 NEWS / FILTERED 中 `30d = 0` 的旧资讯，不再同步或迁移到季度表 / 回收站表；再清理 `30d = 0`、非 `manual`、且首次出现超过保护期的 KEYWORD，然后增量归一，默认真实写飞书。
 - LLM provider 为 `ark`，模型固定 `deepseek-v4-pro`，不依赖 GitHub Secrets / Vertex / 本机 Ollama。
 - 本地真实写入成功后会更新工作区里的 `data/keyword_snapshot.json`（需要定期提交合回 `main`）；snapshot schema v2 包含 `parent_ids` / `owner_ids`，可供本机 RSS ingest 直接建 KEYWORD 索引。
 - 每周自动全量校准已暂停；需要全量校准时手动运行 `full_run=true`。

@@ -2,6 +2,7 @@
 """Run the daily keyword alias normalization pipeline.
 
 This script writes alias metadata, keyword-record links, and maintenance reports:
+0. delete NEWS/FILTERED records whose 30d retention flag is zero;
 1. discover aliases with the three-stage LLM workflow;
 2. append accepted aliases to KEYWORD records;
 3. relink historical NEWS/FILTERED keyword records to canonical KEYWORD records.
@@ -47,7 +48,7 @@ FULL_NOISE_AUDIT_BATCH_SIZE = 500
 
 @dataclass
 class DailyPaths:
-    archive: Path
+    expired_records: Path
     alias_discovery: Path
     cleanup: Path
     noise_audit: Path
@@ -64,7 +65,7 @@ class DailyPaths:
     @classmethod
     def from_out_dir(cls, out_dir: Path) -> "DailyPaths":
         return cls(
-            archive=out_dir / "00-archive-old-records.json",
+            expired_records=out_dir / "00-delete-expired-records.json",
             alias_discovery=out_dir / "01-alias-discovery.json",
             cleanup=out_dir / "00-keyword-cleanup.json",
             noise_audit=out_dir / "00b-keyword-noise-audit.json",
@@ -125,7 +126,7 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 def clear_run_outputs(paths: DailyPaths, out_dir: Path) -> None:
     for path in [
-        paths.archive,
+        paths.expired_records,
         paths.cleanup,
         paths.noise_audit,
         paths.alias_discovery,
@@ -166,7 +167,7 @@ def run_step(name: str, command: List[str], log_path: Path) -> int:
 
 
 def summarize_outputs(
-    archive_path: Path,
+    expired_records_path: Path,
     cleanup_path: Path,
     noise_audit_path: Path,
     alias_discovery_path: Path,
@@ -178,7 +179,7 @@ def summarize_outputs(
     audit_path: Path,
     dry_run: bool,
 ) -> Dict[str, Any]:
-    archive_payload = load_json(archive_path) if archive_path.exists() else {}
+    expired_payload = load_json(expired_records_path) if expired_records_path.exists() else {}
     cleanup_payload = load_json(cleanup_path) if cleanup_path.exists() else {}
     noise_payload = load_json(noise_audit_path) if noise_audit_path.exists() else {}
     alias_payload = load_json(alias_discovery_path) if alias_discovery_path.exists() else {}
@@ -193,16 +194,13 @@ def summarize_outputs(
     summary = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "dry_run": dry_run,
-        "archive": {
-            "source_query": archive_payload.get("source_query", ""),
-            "source_scanned": archive_payload.get("source_scanned", {}),
-            "planned": (archive_payload.get("plan") or {}).get("count", 0),
-            "needs_create": (archive_payload.get("plan") or {}).get("needs_create", 0),
-            "already_archived": (archive_payload.get("plan") or {}).get("already_archived", 0),
-            "created": (archive_payload.get("applied") or {}).get("created", 0),
-            "deleted": (archive_payload.get("applied") or {}).get("deleted", 0),
-            "missing_tables": archive_payload.get("missing_tables", []),
-            "failed_count": len(archive_payload.get("failed") or []),
+        "expired_records": {
+            "source_query": expired_payload.get("source_query", ""),
+            "source_scanned": expired_payload.get("source_scanned", {}),
+            "planned": (expired_payload.get("plan") or {}).get("count", 0),
+            "by_source": (expired_payload.get("plan") or {}).get("by_source", {}),
+            "deleted": (expired_payload.get("applied") or {}).get("deleted", 0),
+            "failed_count": len(expired_payload.get("failed") or []),
         },
         "cleanup": {
             "keyword_scanned": cleanup_payload.get("keyword_scanned", 0),
@@ -267,7 +265,7 @@ def summarize_outputs(
 
 
 def write_markdown_summary(path: Path, summary: Dict[str, Any]) -> None:
-    archive = summary["archive"]
+    expired = summary["expired_records"]
     cleanup = summary["cleanup"]
     noise = summary["noise_audit"]
     alias = summary["alias_discovery"]
@@ -281,17 +279,14 @@ def write_markdown_summary(path: Path, summary: Dict[str, Any]) -> None:
 - generated_at: {summary["generated_at"]}
 - dry_run: {summary["dry_run"]}
 
-## Old Record Archive
+## Expired Record Deletion
 
-- source query: {archive["source_query"] or "-"}
-- source scanned: {json.dumps(archive["source_scanned"], ensure_ascii=False)}
-- planned: {archive["planned"]}
-- needs create: {archive["needs_create"]}
-- already archived: {archive["already_archived"]}
-- created: {archive["created"]}
-- deleted: {archive["deleted"]}
-- missing tables: {", ".join(archive["missing_tables"]) if archive["missing_tables"] else "-"}
-- failed: {archive["failed_count"]}
+- source query: {expired["source_query"] or "-"}
+- source scanned: {json.dumps(expired["source_scanned"], ensure_ascii=False)}
+- planned: {expired["planned"]}
+- by source: {json.dumps(expired["by_source"], ensure_ascii=False)}
+- deleted: {expired["deleted"]}
+- failed: {expired["failed_count"]}
 
 ## Stale Keyword Cleanup
 
@@ -413,12 +408,12 @@ def build_step_specs(
 
     steps = [
         StepSpec(
-            name="archive-old-records",
+            name="delete-expired-records",
             command=[
                 sys.executable,
-                "tools/archive_old_records.py",
+                "tools/delete_expired_records.py",
                 "--output",
-                str(paths.archive),
+                str(paths.expired_records),
                 "--max-pages",
                 str(args.max_pages),
                 "--page-size",
@@ -734,7 +729,7 @@ def main(argv: List[str] | None = None) -> int:
 
     final_audit_path = paths.audit_post_repair if audit_failed_repairable and paths.audit_post_repair.exists() else paths.audit
     summary = summarize_outputs(
-        paths.archive,
+        paths.expired_records,
         paths.cleanup,
         paths.noise_audit,
         paths.alias_discovery,
