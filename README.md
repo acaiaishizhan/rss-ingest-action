@@ -18,7 +18,7 @@
 - KEYWORD 表支持脚本同步 `NEWS次数`、`FILTERED次数`、`最后出现`、`热度样本`；这些是快照字段，不是实时趋势。
 - `merge_keywords.py` 支持关键词合并 fixture 测试、真实候选 dry-run、核心计数字段同步，以及把别名发现结果批量追加到 KEYWORD「归一项」。
 - 关键词维护流水线先直接删除 NEWS / FILTERED 中 `30d = 0` 的旧资讯，不再同步或迁移到季度表 / 回收站表；再删除 `30d = 0`、非 `manual`、且首次出现超过保护期的 KEYWORD，之后做别名归一、改链、父关键词 / 归属关键词补链和巡检。
-- RSS 主流程默认 LLM provider 为 Volcengine Ark Coding Plan 的 `deepseek-v4-flash`（subagent `d` 同款 Flash lane）；本机关键词维护脚本使用 Ark `deepseek-v4-pro`（`dsp` 同款 Pro lane）。手动触发的关键词维护 GitHub Action 走 DeepSeek 直连（`DEEPSEEK_API_KEY` secret），也可显式切换 Gemini、Ark、iFlow、OpenAI、Zhipu。
+- RSS 主流程默认 LLM provider 为 Volcengine Ark Coding Plan 的 `deepseek-v4-flash`（subagent `d` 同款 Flash lane）；本机关键词维护脚本和手动触发的关键词维护 GitHub Action 都使用 Ark `deepseek-v4-pro`（`dsp` 同款 Pro lane）。
 - RSS 源抓取支持并发，默认 `RSS_FETCH_CONCURRENCY=20`，同一 host 默认最多并发 4 个请求；超时源会用 4 并发补跑一次，避免本地 RSSHub 被打满后直接漏源。
 - 对 RSS 正文为空或极短的条目支持网页全文 fallback：重点源使用定向解析，其他公开 HTTP(S) 文章页使用保守通用解析；所有 HTTP 抓取都会拒绝内网/保留地址、逐跳校验重定向，并限制响应大小。
 - 支持 `item_key` 精确去重和 screen 后的 LLM 文本去重：先按关键词记录 / 关键词名称 / 本地归一快照找候选旧 NEWS，再由 LLM 判断是否同一事件。
