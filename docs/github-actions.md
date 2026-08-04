@@ -9,7 +9,7 @@ Windows Docker RSS / Grok / KEYWORD snapshot
        WSL local_feed_publisher.py -> private rss-runtime-data
                     |                        |
            changed-data dispatch -----------+
-GitHub schedule (07/27/47, best effort) -----+
+GitHub schedule (07/22/37/52, best effort) --+
                     |
                     v
          public rss-ingest-action -> Feishu
@@ -83,9 +83,9 @@ GitHub runner 使用 Ark Coding Plan 的 `deepseek-v4-flash`，Secrets 为
 
 ## 云端定时器
 
-公开仓库的原生 schedule 配置为每小时 `07 / 27 / 47` 分运行。仓库变量
+公开仓库的原生 schedule 配置为每小时 `07 / 22 / 37 / 52` 分运行。仓库变量
 `RSS_INGEST_ENABLED=true` 时生效，但 GitHub 可能延迟或合并高频 schedule，因此不承诺
-严格 20 分钟 SLA。本机发布器在私有数据变化时发送 `workflow_dispatch` 作为主触发；
+严格 15 分钟 SLA。本机发布器在私有数据变化时发送 `workflow_dispatch` 作为主触发；
 Pipedream 保持 Draft / OFF。
 
 ## 回滚

@@ -24,7 +24,7 @@
 - 支持 `item_key` 精确去重和 screen 后的 LLM 文本去重：先按关键词记录 / 关键词名称 / 本地归一快照找候选旧 NEWS，再由 LLM 判断是否同一事件。
 - 支持失败条目池 `failed_items`，后续运行会有限重试。
 - 支持飞书提醒记录表、过滤表和可选二次同步表。
-- GitHub Actions 默认每 20 分钟运行 RSS 主流程；本机 `rss-ingest-fetch` 只作为迁移回滚入口。Action 日志保留为 7 天 artifact，非零退出继续通过飞书 webhook 告警。
+- GitHub Actions 默认每 15 分钟运行 RSS 主流程；本机 `rss-ingest-fetch` 只作为迁移回滚入口。Action 日志保留为 7 天 artifact，非零退出继续通过飞书 webhook 告警。
 
 ## 快速开始
 
@@ -186,7 +186,7 @@ NEWS / FILTERED 的「全文」写入前会被限制在 80000 字符内，避免
 
 ## GitHub Actions 与本地数据桥
 
-生产 RSS 入库由 `.github/workflows/rss-ingest.yml` 运行：每小时 `07 / 27 / 47` 分触发，也支持手动 `workflow_dispatch`。Action 使用 `RSS_SOURCE_MODE=github`，公开 HTTP(S) 源直接抓取；本地私有源通过私有 `rss-runtime-data` 仓库中的 `source-map.json` 映射为 XML 文件，并从同一仓库读取每日 KEYWORD 快照。未映射的 localhost、本地文件和 Grok feed 会被跳过，不计作源失败。
+生产 RSS 入库由 `.github/workflows/rss-ingest.yml` 运行：每小时 `07 / 22 / 37 / 52` 分触发，也支持手动 `workflow_dispatch`。Action 使用 `RSS_SOURCE_MODE=github`，公开 HTTP(S) 源直接抓取；本地私有源通过私有 `rss-runtime-data` 仓库中的 `source-map.json` 映射为 XML 文件，并从同一仓库读取每日 KEYWORD 快照。未映射的 localhost、本地文件和 Grok feed 会被跳过，不计作源失败。
 
 本机只保留数据生产和发布：
 
