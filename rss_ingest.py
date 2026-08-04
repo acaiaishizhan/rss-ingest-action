@@ -1626,9 +1626,13 @@ def build_ark_payload(prompt: str, model: str) -> Dict[str, Any]:
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
     }
+    normalized_model = str(model or "").strip().lower()
     if (
         getattr(config, "ARK_DISABLE_THINKING", True)
-        and str(model or "").strip().lower().startswith("deepseek-v4")
+        and (
+            normalized_model.startswith("deepseek-v4")
+            or normalized_model == "ark-code-latest"
+        )
     ):
         payload["thinking"] = {"type": "disabled"}
     return payload

@@ -76,7 +76,7 @@ def test_config_defaults_to_volcengine_deepseek_flash():
     assert cfg.LLM_PROVIDER == "ark"
     assert cfg.TEXT_DEDUP_PROVIDER == "ark"
     assert cfg.ARK_BASE_URL == "https://ark.cn-beijing.volces.com/api/coding/v3"
-    assert cfg.ARK_MODEL == "deepseek-v4-flash"
+    assert cfg.ARK_MODEL == "ark-code-latest"
     assert cfg.ARK_PARSE_RETRIES == 3
     assert cfg.ARK_DISABLE_THINKING is True
     assert cfg.DEEPSEEK_MODEL == "deepseek-v4-flash"

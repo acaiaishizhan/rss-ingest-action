@@ -651,6 +651,15 @@ def test_ollama_provider_uses_local_deepseek_cloud_model(monkeypatch):
     assert rss_ingest.provider_model_for_stage("ollama", "screen") == "deepseek-v4-flash:cloud"
 
 
+def test_ark_code_latest_disables_thinking_for_flash_route(monkeypatch):
+    monkeypatch.setattr(rss_ingest.config, "ARK_DISABLE_THINKING", True, raising=False)
+
+    payload = rss_ingest.build_ark_payload("prompt", "ark-code-latest")
+
+    assert payload["model"] == "ark-code-latest"
+    assert payload["thinking"] == {"type": "disabled"}
+
+
 def test_analyze_with_llm_falls_back_to_ark_after_ollama_failures(monkeypatch):
     calls = []
     payloads = []
