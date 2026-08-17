@@ -142,12 +142,6 @@ class PublisherConfig:
                 "/mnt/f/coding/solo-company/tools/private-rss/data/all.xml",
             )
         )
-        we_mp_db = Path(
-            os.getenv(
-                "WE_MP_RSS_DB_PATH",
-                "/mnt/f/coding/we-mp-rss/data/db.db",
-            )
-        )
         grok_feed_dir = Path(
             os.getenv(
                 "GROK_RSS_SNAPSHOT_DIR",
@@ -198,11 +192,6 @@ class PublisherConfig:
             state_path=state_dir / "publisher-state.json",
             log_path=state_dir / "publisher.log",
             sources=(
-                SourceSpec(
-                    "we-mp-rss",
-                    os.getenv("WE_MP_RSS_FEED_URL", "http://127.0.0.1:8001/feed/all.rss").strip(),
-                    "feeds/we-mp-rss.xml",
-                ),
                 SourceSpec("private-rss", _path_as_file_uri(private_feed), "feeds/private-rss.xml"),
                 *grok_sources,
                 *substack_sources,
@@ -216,9 +205,6 @@ class PublisherConfig:
             ),
             watch_paths=(
                 private_feed,
-                we_mp_db,
-                Path(f"{we_mp_db}-wal"),
-                Path(f"{we_mp_db}-shm"),
                 *grok_feed_paths,
                 keyword_snapshot,
             ),

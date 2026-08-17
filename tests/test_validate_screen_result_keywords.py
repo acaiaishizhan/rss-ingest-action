@@ -66,6 +66,22 @@ def test_pass_allows_empty_keywords():
     }
 
 
+def test_ingest_preserves_optional_denoise_fields():
+    result = validate_screen_result(
+        _ingest_payload(
+            denoise_verdict="filter",
+            denoise_confidence="high",
+            denoise_type="generic_industry",
+            denoise_reason="纯学术且没有生产用途。",
+        )
+    )
+
+    assert result["denoise_verdict"] == "filter"
+    assert result["denoise_confidence"] == "high"
+    assert result["denoise_type"] == "generic_industry"
+    assert result["denoise_reason"] == "纯学术且没有生产用途。"
+
+
 def test_keywords_too_many_raises():
     payload = _ingest_payload(
         keywords=[

@@ -43,6 +43,7 @@ from source_runtime import SourceRuntimeConfigError, prepare_sources_for_runtime
 
 FAILED_CATEGORIES = {"调用失败", "调用异常", "解析失败", "JSON解析失败", "异常"}
 _KEYWORD_NAME_BLOCKLIST: set = set()
+
 _KEYWORD_NAME_BLOCKED_COUNT = 0
 KEYWORD_BLOCKLIST_MARKER = "关键词过滤"
 PROMPT_SCREEN_MARKER = "提示词1：筛选、评分、标签"
@@ -739,6 +740,18 @@ def validate_screen_result(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "summary": summary,
         "brief_summary": summary,
     }
+    denoise_verdict = str(analysis.get("denoise_verdict") or "").strip().lower()
+    denoise_confidence = str(analysis.get("denoise_confidence") or "").strip().lower()
+    denoise_type = str(analysis.get("denoise_type") or "").strip().lower()
+    denoise_reason = str(analysis.get("denoise_reason") or "").strip()
+    if denoise_verdict in {"keep", "filter"}:
+        result["denoise_verdict"] = denoise_verdict
+    if denoise_confidence in {"high", "medium", "low"}:
+        result["denoise_confidence"] = denoise_confidence
+    if denoise_type in {"none", "pure_academic", "generic_industry", "empty_promo", "showcase", "unrelated"}:
+        result["denoise_type"] = denoise_type
+    if denoise_reason:
+        result["denoise_reason"] = denoise_reason
     raw_categories = analysis.get("categories")
     if raw_categories not in (None, "", []):
         result["categories"] = _validate_categories(raw_categories)
@@ -1635,6 +1648,9 @@ def build_ark_payload(prompt: str, model: str) -> Dict[str, Any]:
         )
     ):
         payload["thinking"] = {"type": "disabled"}
+    ark_temperature = getattr(config, "ARK_TEMPERATURE", None)
+    if ark_temperature is not None:
+        payload["temperature"] = float(ark_temperature)
     return payload
 
 
@@ -1809,10 +1825,25 @@ def _run_provider_chat(
                 audit_model=target_model,
             )
 
-            if resp.status_code in (401, 403):
+            response_text = getattr(resp, "text", "") or ""
+            key_scoped_failure = resp.status_code in (401, 403) or (
+                resp.status_code == 400
+                and any(
+                    marker in response_text
+                    for marker in (
+                        "InvalidSubscription",
+                        "AccountQuotaExceeded",
+                    )
+                )
+            )
+            if key_scoped_failure:
+                http_retry_count += 1
+                if len(api_keys) > 1 and http_retry_count < len(api_keys):
+                    continue
                 if not suppress_notify:
                     notify_auth_failure(spec.display_name, response_snippet(resp))
-                return _failed_call(f"auth_error: {response_snippet(resp)}")
+                failure_type = "auth_error" if resp.status_code in (401, 403) else "subscription_error"
+                return _failed_call(f"{failure_type}: {response_snippet(resp)}")
 
             if resp.status_code == 400 and "SensitiveContentDetected" in (resp.text or ""):
                 return _failed_call("content_policy: SensitiveContentDetected")

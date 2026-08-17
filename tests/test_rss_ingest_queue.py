@@ -824,6 +824,52 @@ def test_ark_round_robins_starting_key_and_fails_over(monkeypatch):
     ]
 
 
+def test_ark_invalid_subscription_falls_through_to_the_other_key(monkeypatch):
+    authorizations = []
+
+    class DummyResponse:
+        def __init__(self, status_code, text):
+            self.status_code = status_code
+            self.text = text
+
+        def json(self):
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": '{"action":"pass","reason":"ok"}'},
+                }]
+            }
+
+    responses = [
+        DummyResponse(
+            400,
+            '{"error":{"code":"InvalidSubscription","message":"subscription expired"}}',
+        ),
+        DummyResponse(200, ""),
+    ]
+
+    def fake_post(*args, headers=None, **kwargs):
+        authorizations.append(headers["Authorization"])
+        return responses.pop(0)
+
+    monkeypatch.setattr(rss_ingest, "_http_post", fake_post)
+    monkeypatch.setattr(rss_ingest.config, "ARK_API_KEY", "ark-key-expired", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_API_KEY_2", "ark-key-good", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_MODEL", "ark-code-latest", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_RETRIES", 1, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ARK_PARSE_RETRIES", 1, raising=False)
+    rss_ingest._PROVIDER_KEY_ROTATION_INDEX.clear()
+
+    result = rss_ingest.analyze_with_ark_prompt(
+        {"title": "t", "content": "c", "link": "https://example.com", "source": "src"},
+        "screen prompt",
+    )
+
+    assert result["action"] == "pass"
+    assert authorizations == ["Bearer ark-key-expired", "Bearer ark-key-good"]
+
+
 def test_ark_content_filter_empty_content_does_not_retry_or_notify(monkeypatch):
     calls = []
 
@@ -1060,6 +1106,156 @@ def test_analyze_article_retries_screen_when_category_invalid(monkeypatch):
     assert calls[0] == "screen prompt"
     assert "上一轮输出未通过系统校验：invalid categories: AI产品" in calls[1]
     assert calls[2] == "summary prompt"
+
+
+def test_analyze_article_staged_keep_is_locked_and_content_retries(monkeypatch):
+    calls = []
+    responses = [
+        {"verdict": "keep", "score": 6.2, "evidence": "工具新增批处理能力", "reason": "具名工具能力变化"},
+        {
+            "action": "pass",
+            "reason": "内容太薄",
+            "title_zh": "工具更新",
+            "summary": "工具新增批处理能力。",
+            "keywords": [{"name": "工具A", "type": "product"}],
+        },
+        {
+            "action": "ingest",
+            "categories": ["AI工具与自动化"],
+            "score": 4.5,
+            "reason": "初筛 keep 不可推翻",
+            "title_zh": "工具A新增批处理能力",
+            "summary": "工具A新增批处理能力。",
+            "keywords": [{"name": "工具A", "type": "product"}],
+            "qa": qa_items(),
+        },
+    ]
+
+    def fake_analyze(article, provider, system_prompt, model_name, **kwargs):
+        calls.append(system_prompt)
+        return responses.pop(0)
+
+    monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
+    monkeypatch.setattr(rss_ingest.config, "SCREEN_VALIDATE_RETRIES", 3, raising=False)
+
+    result = rss_ingest.analyze_article(
+        {"title": "t", "content": "c", "link": "https://example.com", "source": "src"},
+        {
+            "keyword_blocklist": [],
+            "triage_prompt": "triage prompt",
+            "screen_prompt": "content prompt",
+            "summarize_prompt": "fallback prompt",
+        },
+        provider="deepseek",
+        include_summary=False,
+    )
+
+    assert result["action"] == "ingest"
+    assert result["score"] == 4.5
+    assert result["_llm_meta"]["staged_screening"] is True
+    assert result["_llm_meta"]["triage_verdict"] == "keep"
+    assert result["_llm_meta"]["llm_request_count"] == 3
+    assert calls[0] == "triage prompt"
+    assert "initial_verdict: keep" in calls[1]
+    assert "triage keep cannot be overridden" in calls[2]
+
+
+def test_analyze_article_staged_uncertain_can_pass(monkeypatch):
+    responses = [
+        {"verdict": "uncertain", "score": 4.0, "evidence": "只公布融资金额", "reason": "可能只是资本信号"},
+        {
+            "action": "pass",
+            "reason": "纯资本/治理/规模，未命中六类救回",
+            "title_zh": "某AI公司完成融资",
+            "summary": "某AI公司完成新一轮融资。",
+            "keywords": [{"name": "某AI公司", "type": "org"}],
+        },
+    ]
+    monkeypatch.setattr(
+        rss_ingest,
+        "analyze_with_provider_prompt",
+        lambda *args, **kwargs: responses.pop(0),
+    )
+
+    result = rss_ingest.analyze_article(
+        {"title": "融资", "content": "正文", "link": "https://example.com", "source": "src"},
+        {
+            "keyword_blocklist": [],
+            "triage_prompt": "triage prompt",
+            "screen_prompt": "content prompt",
+            "summarize_prompt": "fallback prompt",
+        },
+        provider="deepseek",
+        include_summary=False,
+    )
+
+    assert result["action"] == "pass"
+    assert result["_llm_meta"]["triage_verdict"] == "uncertain"
+    assert result["_llm_meta"]["llm_request_count"] == 2
+
+
+def test_analyze_article_staged_filter_stops_after_triage(monkeypatch):
+    calls = []
+
+    def fake_analyze(*args, **kwargs):
+        calls.append(args[2])
+        return {"verdict": "filter", "score": 1.0, "evidence": "只有一句感谢", "reason": "真正空内容"}
+
+    monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
+    result = rss_ingest.analyze_article(
+        {"title": "谢谢", "content": "感谢大家", "link": "https://example.com", "source": "src"},
+        {
+            "keyword_blocklist": [],
+            "triage_prompt": "triage prompt",
+            "screen_prompt": "content prompt",
+            "summarize_prompt": "fallback prompt",
+        },
+        provider="deepseek",
+        include_summary=False,
+    )
+
+    assert result["action"] == "pass"
+    assert result["_llm_meta"]["triage_verdict"] == "filter"
+    assert result["_llm_meta"]["llm_request_count"] == 1
+    assert calls == ["triage prompt"]
+
+
+def test_analyze_article_staged_low_triage_score_stops_before_content(monkeypatch):
+    calls = []
+
+    def fake_analyze(*args, **kwargs):
+        calls.append(args[2])
+        return {
+            "verdict": "uncertain",
+            "score": 3.7,
+            "evidence": "只有活动议题",
+            "reason": "评分停在 S2 噪音档",
+        }
+
+    monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
+    monkeypatch.setattr(rss_ingest.config, "ENABLE_TRIAGE_SCORE_GATE", True, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "TRIAGE_MIN_SCORE", 3.8, raising=False)
+
+    result = rss_ingest.analyze_article(
+        {"title": "活动预告", "content": "只有议题", "link": "https://example.com", "source": "src"},
+        {
+            "keyword_blocklist": [],
+            "triage_prompt": "triage prompt",
+            "screen_prompt": "content prompt",
+            "summarize_prompt": "fallback prompt",
+        },
+        provider="deepseek",
+        include_summary=False,
+    )
+
+    assert result["action"] == "pass"
+    assert result["score"] == 3.7
+    assert result["_llm_meta"]["triage_verdict"] == "uncertain"
+    assert result["_llm_meta"]["triage_score"] == 3.7
+    assert result["_llm_meta"]["low_score_filtered"] is True
+    assert result["_llm_meta"]["filter_method"] == "初筛低分"
+    assert result["_llm_meta"]["llm_request_count"] == 1
+    assert calls == ["triage prompt"]
 
 
 def test_analyze_article_retries_pass_when_summary_missing(monkeypatch):
@@ -1874,6 +2070,63 @@ def test_run_llm_queue_does_not_count_low_score_items_as_new(monkeypatch):
     assert source_states["source-1"]["new_count"] == 0
 
 
+def test_run_llm_queue_staged_low_score_still_writes_news(monkeypatch):
+    created = []
+    analysis = {
+        "action": "ingest",
+        "categories": ["AI工具与自动化"],
+        "score": 4.5,
+        "reason": "薄信号保留",
+        "title_zh": "标题",
+        "summary": "摘要",
+        "keywords": [{"name": "工具A", "type": "product"}],
+        "qa": qa_items(),
+        "_provider_used": "openai",
+    }
+    analysis = rss_ingest.attach_llm_meta(
+        analysis,
+        staged_screening=True,
+        triage_verdict="keep",
+        llm_request_count=2,
+    )
+    monkeypatch.setattr(rss_ingest, "analyze_with_llm", lambda *args, **kwargs: analysis, raising=False)
+    monkeypatch.setattr(
+        rss_ingest,
+        "create_record_with_keyword_multiselect_fallback",
+        lambda *args, **kwargs: created.append(args[3]) or (True, "rid-news"),
+    )
+    monkeypatch.setattr(rss_ingest, "ensure_keyword_records", lambda *args, **kwargs: ["rec-kw"])
+    monkeypatch.setattr(rss_ingest, "upload_article_images_for_attachment", lambda *args, **kwargs: [])
+    monkeypatch.setattr(rss_ingest, "ENABLE_TEXT_DEDUP", False, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "LLM_CONCURRENCY", 1, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_MIN_SCORE", 6.0, raising=False)
+
+    stats = {
+        "llm_success": 0,
+        "llm_failed": 0,
+        "llm_filtered": 0,
+        "feishu_create_failed": 0,
+        "entries_processed": 0,
+        "entries_new": 0,
+    }
+    rss_ingest.run_llm_queue(
+        [{
+            "source_id": "source-1",
+            "item_key": "item-1",
+            "entry_ts_ms": 1,
+            "article": {"title": "t", "content": "c", "link": "https://example.com", "source": "src"},
+        }],
+        {"source-1": {"updated_failed_items": [], "now_ms": 123, "new_count": 0}},
+        "tenant",
+        existing_keys=set(),
+        stats=stats,
+    )
+
+    assert len(created) == 1
+    assert stats["entries_written"] == 1
+    assert stats["entries_low_score"] == 0
+
+
 def test_run_llm_queue_retries_news_create_without_keyword_multiselect(monkeypatch):
     created = []
 
@@ -2681,17 +2934,20 @@ def test_main_returns_nonzero_when_every_queued_llm_item_fails(monkeypatch):
 
 def test_load_local_prompt_sections_resolves_relative_paths_from_base_dir(tmp_path, monkeypatch):
     keyword_file = tmp_path / "docs" / "local-keyword-blocklist.txt"
+    triage_file = tmp_path / "docs" / "local-screen-triage-prompt.md"
     screen_file = tmp_path / "docs" / "local-screen-prompt.md"
     summarize_file = tmp_path / "docs" / "local-summarize-prompt.md"
     addendum_file = tmp_path / "docs" / "local-screen-keywords-addendum.md"
     keyword_file.parent.mkdir(parents=True)
     keyword_file.write_text("# comment\n区块链\n- 空投\n", encoding="utf-8")
+    triage_file.write_text("triage prompt body", encoding="utf-8")
     screen_file.write_text("screen prompt body", encoding="utf-8")
     summarize_file.write_text("summary prompt body", encoding="utf-8")
     addendum_file.write_text("keywords addendum body", encoding="utf-8")
 
     monkeypatch.setattr(rss_ingest.config, "BASE_DIR", tmp_path, raising=False)
     monkeypatch.setattr(rss_ingest.config, "LOCAL_KEYWORD_BLOCKLIST_PATH", "docs/local-keyword-blocklist.txt", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "LOCAL_TRIAGE_PROMPT_PATH", "docs/local-screen-triage-prompt.md", raising=False)
     monkeypatch.setattr(rss_ingest.config, "LOCAL_SCREEN_PROMPT_PATH", "docs/local-screen-prompt.md", raising=False)
     monkeypatch.setattr(rss_ingest.config, "LOCAL_SUMMARIZE_PROMPT_PATH", "docs/local-summarize-prompt.md", raising=False)
     monkeypatch.setattr(
@@ -2709,9 +2965,11 @@ def test_load_local_prompt_sections_resolves_relative_paths_from_base_dir(tmp_pa
         os.chdir(current)
 
     assert parsed["keyword_path"] == str(keyword_file)
+    assert parsed["triage_path"] == str(triage_file)
     assert parsed["screen_path"] == str(screen_file)
     assert parsed["summarize_path"] == str(summarize_file)
     assert parsed["keyword_blocklist"] == ["区块链", "空投"]
+    assert parsed["triage_prompt"] == "triage prompt body"
     assert parsed["screen_prompt"] == "screen prompt body\n\nkeywords addendum body"
     assert parsed["summarize_prompt"] == "summary prompt body"
 

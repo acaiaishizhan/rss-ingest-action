@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.github_runtime_preflight import REQUIRED_ENV, validate_runtime
+from tools.github_runtime_preflight import REQUIRED_ENV, validate_ark_keys, validate_runtime
 
 
 RSS = b"""<?xml version="1.0"?><rss><channel><item><guid>1</guid></item></channel></rss>"""
@@ -74,3 +74,45 @@ def test_validate_runtime_rejects_missing_keyword_snapshot(tmp_path: Path) -> No
 
     with pytest.raises(RuntimeError, match="keyword snapshot is unavailable"):
         validate_runtime(_source_map(tmp_path), _env(), tmp_path / "missing.json")
+
+
+def test_validate_ark_keys_checks_each_key_independently() -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "OK"}}]}
+
+    def post(url, *, headers, json, timeout):
+        calls.append((url, headers["Authorization"], json["model"], timeout))
+        return Response()
+
+    env = {
+        "ARK_API_KEY": "key-one",
+        "ARK_API_KEY_2": "key-two",
+        "ARK_BASE_URL": "https://ark.example/v3",
+        "ARK_MODEL": "ark-code-latest",
+    }
+
+    assert validate_ark_keys(env, post=post) == ("ARK_API_KEY", "ARK_API_KEY_2")
+    assert calls == [
+        ("https://ark.example/v3/chat/completions", "Bearer key-one", "ark-code-latest", 60),
+        ("https://ark.example/v3/chat/completions", "Bearer key-two", "ark-code-latest", 60),
+    ]
+
+
+def test_validate_ark_keys_reports_the_failed_slot_without_leaking_the_key() -> None:
+    class Response:
+        status_code = 400
+
+        def json(self):
+            return {"error": {"code": "InvalidSubscription"}}
+
+    env = {"ARK_API_KEY": "secret-one", "ARK_API_KEY_2": "secret-two"}
+
+    with pytest.raises(RuntimeError, match=r"ARK_API_KEY failed: HTTP 400 InvalidSubscription") as exc:
+        validate_ark_keys(env, post=lambda *args, **kwargs: Response())
+    assert "secret-one" not in str(exc.value)
+    assert "secret-two" not in str(exc.value)

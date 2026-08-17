@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -136,6 +137,77 @@ def test_extract_article_text_force_fetches_x_status_from_embedded_html_without_
     assert "Speech 2.8 Turbo" in result["text"]
 
 
+def test_extract_article_text_fetches_x_article_from_fxtwitter_when_embedded_text_is_only_link(monkeypatch):
+    tweet_id = "2079067830755147898"
+    embedded_html = f'''<html><body><script>
+    {{"{tweet_id}":{{"full_text":"https://t.co/MMIg4krC44","user":"123"}},"123":{{"name":"数字生命卡兹克","screen_name":"Khazix0918"}}}}
+    </script></body></html>'''
+    fxtwitter_payload = {
+        "code": 200,
+        "tweet": {
+            "created_at": "2026-07-20T04:56:12.000Z",
+            "text": "",
+            "author": {"name": "数字生命卡兹克", "screen_name": "Khazix0918"},
+            "article": {
+                "title": "不会代码也能做产品，这是一份从0开始的Vibe Coding保姆级教程。",
+                "preview_text": "最近，国产大模型也都起飞了。",
+                "content": {
+                    "blocks": [
+                        {"type": "unstyled", "text": "最近，国产大模型也都起飞了。"},
+                        {"type": "unstyled", "text": "1. 买一个国产大模型的Coding Plan套餐。"},
+                        {"type": "unstyled", "text": "Kimi、GLM、Qwen等等都无所谓，能买到哪个就用哪个。"},
+                        {"type": "atomic", "text": " "},
+                        {"type": "unstyled", "text": "2. 去下载各家官方的Agent编程产品。"},
+                    ]
+                },
+            },
+        },
+    }
+    seen = {}
+
+    monkeypatch.setattr(article_extractor, "_http_get", lambda *args, **kwargs: DummyResponse(text=embedded_html))
+
+    def fake_public_fetch(url, *args, **kwargs):
+        seen["url"] = url
+        return DummyResponse(text=json.dumps(fxtwitter_payload, ensure_ascii=False))
+
+    monkeypatch.setattr(article_extractor, "fetch_public_content", fake_public_fetch)
+    monkeypatch.setattr(
+        article_extractor,
+        "_fetch_oembed_x_status_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("oEmbed should not be reached")),
+        raising=False,
+    )
+
+    result = article_extractor.extract_article_text(
+        f"https://x.com/Khazix0918/status/{tweet_id}",
+        "AI HOT 聚合源",
+        "https://aihot.virxact.com/feed/all.xml",
+        {"summary": "零代码用国产模型从0到1做产品全流程"},
+        force_fetch=True,
+    )
+
+    assert seen["url"] == f"https://api.fxtwitter.com/i/status/{tweet_id}"
+    assert result["method"] == "source_parser:x_status_browser"
+    assert result["status"] == "ok"
+    assert "X/Twitter 长文" in result["text"]
+    assert "Vibe Coding保姆级教程" in result["text"]
+    assert "Kimi、GLM、Qwen" in result["text"]
+    assert "2. 去下载各家官方的Agent编程产品" in result["text"]
+    assert "正文：https://t.co/MMIg4krC44" not in result["text"]
+
+
+def test_fxtwitter_article_title_without_body_is_not_treated_as_full_text():
+    text = article_extractor._format_fxtwitter_status_text(
+        {
+            "text": "https://t.co/article-card",
+            "article": {"title": "只有标题，没有正文", "content": {"blocks": []}},
+        }
+    )
+
+    assert text == ""
+
+
 def test_extract_article_text_force_fetches_x_status_from_oembed_without_browser(monkeypatch):
     seen = {}
     oembed_json = r"""{
@@ -157,6 +229,12 @@ def test_extract_article_text_force_fetches_x_status_from_oembed_without_browser
         article_extractor,
         "_fetch_embedded_x_status_text",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("embedded unavailable")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        article_extractor,
+        "_fetch_fxtwitter_x_status_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fxtwitter unavailable")),
         raising=False,
     )
     monkeypatch.setattr(article_extractor, "_http_get", fake_get)
@@ -194,6 +272,12 @@ def test_extract_article_text_keeps_x_summary_when_http_fallbacks_fail(monkeypat
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("embedded unavailable")),
         raising=False,
     )
+    monkeypatch.setattr(
+        article_extractor,
+        "_fetch_fxtwitter_x_status_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fxtwitter unavailable")),
+        raising=False,
+    )
     monkeypatch.setattr(article_extractor, "_http_get", fake_get)
     monkeypatch.setattr(
         article_extractor,
@@ -228,6 +312,12 @@ def test_extract_article_text_force_fetches_x_status_with_enabled_browser_fallba
         article_extractor,
         "_fetch_embedded_x_status_text",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("embedded unavailable")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        article_extractor,
+        "_fetch_fxtwitter_x_status_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fxtwitter unavailable")),
         raising=False,
     )
     monkeypatch.setattr(

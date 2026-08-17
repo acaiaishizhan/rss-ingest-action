@@ -30,8 +30,8 @@ RSS feed 经常只给标题、链接或短摘要。主流程需要尽量给 LLM 
   - 处理：当 `ENABLE_BROWSER_ARTICLE_FETCH=true` 且检测到 Medium/Towards AI 预览摘要或短正文时，连接 gpt-browser 默认 Chrome profile 的 DevTools endpoint，复用已登录页面抽取 `article` 正文。没有打开开关或浏览器补抓失败时，保留 RSS 原文本，不中断主流程。
 - `AI HOT` 中的 X/Twitter 原帖
   - feed：`https://aihot.virxact.com/feed/all.xml` / `https://aihot.virxact.com/feed`
-  - 问题：AI HOT 条目可能只给短摘要，链接指向 `x.com/.../status/...` 原帖。
-  - 处理：强制补抓时先请求 X 页面内嵌数据，再请求 `publish.twitter.com/oembed`。默认不打开本机浏览器；只有显式设置 `ENABLE_X_BROWSER_FALLBACK=true` 时，才会连接 gpt-browser Chrome profile 做最后兜底。
+  - 问题：AI HOT 条目可能只给短摘要，链接指向 `x.com/.../status/...` 原帖；X Articles 的普通 tweet 文本可能只有一条 `t.co` 卡片链接，真正长文位于独立的 `tweet.article.content.blocks`。
+  - 处理：强制补抓时先请求 X 页面内嵌数据；正文为空或只有短链时，通过 FxTwitter 读取 X Article / 普通推文正文，再回退 `publish.twitter.com/oembed`。默认不打开本机浏览器；只有显式设置 `ENABLE_X_BROWSER_FALLBACK=true` 时，才会连接 gpt-browser Chrome profile 做最后兜底。
 
 不覆盖：
 
@@ -64,7 +64,7 @@ RSS feed 经常只给标题、链接或短摘要。主流程需要尽量给 LLM 
 2. 没有 `content` 但有 `summary/description`：先使用摘要，`method=rss_summary`。
 3. 文本为空或短于 120 字时，重点来源命中特定 parser；其他合格的公开文章链接使用通用 parser 请求原文页补全文。
 4. Towards AI / Medium 摘要含 `Continue reading on ...` 时，即使超过 120 字，也可在浏览器补抓开关开启后请求已登录浏览器补全文。
-5. AI HOT 中的 X/Twitter 原帖会在 `force_fetch=true` 时走 X 专用补抓；默认只用 HTTP，保留浏览器兜底开关但不开。
+5. AI HOT 中的 X/Twitter 原帖会在 `force_fetch=true` 时走 X 专用补抓；X Articles 会按顺序拼接 `article.content.blocks[].text`，只有短链的外壳不再视为抓取成功。默认只用 HTTP，保留浏览器兜底开关但不开。
 6. 网页抽取成功：返回 `method=source_parser:huggingface_blog`、`source_parser:ithome_article`、`source_parser:hacker_news_article`、`source_parser:generic_article`、`source_parser:x_status_browser` 或 `source_parser:browser_medium_article`。
 7. 网页抽取失败：保留 RSS 原文本，不中断主流程，`status=fetch_error/parse_error`。
 

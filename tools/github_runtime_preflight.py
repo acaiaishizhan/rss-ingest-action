@@ -9,7 +9,9 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
+
+import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -20,6 +22,7 @@ from tools.local_feed_publisher import validate_feed_bytes, validate_keyword_sna
 
 REQUIRED_ENV = (
     "ARK_API_KEY",
+    "ARK_API_KEY_2",
     "FEISHU_APP_ID",
     "FEISHU_APP_SECRET",
     "FEISHU_APP_TOKEN",
@@ -28,6 +31,62 @@ REQUIRED_ENV = (
     "FEISHU_FILTERED_TABLE_ID",
     "FEISHU_KEYWORD_TABLE_ID",
 )
+
+
+def validate_ark_keys(
+    env: Mapping[str, str],
+    *,
+    post: Callable = requests.post,
+) -> tuple[str, ...]:
+    keys = (
+        ("ARK_API_KEY", str(env.get("ARK_API_KEY") or "").strip()),
+        ("ARK_API_KEY_2", str(env.get("ARK_API_KEY_2") or "").strip()),
+    )
+    missing = [name for name, value in keys if not value]
+    if missing:
+        raise RuntimeError(f"missing required GitHub Secrets: {', '.join(missing)}")
+    if keys[0][1] == keys[1][1]:
+        raise RuntimeError("ARK_API_KEY and ARK_API_KEY_2 must be distinct")
+
+    base_url = str(
+        env.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/coding/v3"
+    ).rstrip("/")
+    model = str(env.get("ARK_MODEL") or "ark-code-latest").strip()
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with exactly OK and nothing else."}],
+        "stream": False,
+        "thinking": {"type": "disabled"},
+        "max_tokens": 8,
+    }
+
+    healthy = []
+    for name, api_key in keys:
+        response = post(
+            f"{base_url}/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            json=payload,
+            timeout=60,
+        )
+        if response.status_code != 200:
+            try:
+                error_code = str((response.json().get("error") or {}).get("code") or "").strip()
+            except Exception:
+                error_code = ""
+            suffix = f" {error_code}" if error_code else ""
+            raise RuntimeError(f"{name} failed: HTTP {response.status_code}{suffix}")
+        try:
+            choices = response.json().get("choices") or []
+            content = str((((choices[0] if choices else {}).get("message") or {}).get("content") or "")).strip()
+        except Exception as exc:
+            raise RuntimeError(f"{name} returned invalid JSON") from exc
+        if not content:
+            raise RuntimeError(f"{name} returned empty content")
+        healthy.append(name)
+    return tuple(healthy)
 
 
 def validate_runtime(
@@ -83,9 +142,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         os.environ,
         args.keyword_snapshot,
     )
+    healthy_ark_keys = validate_ark_keys(os.environ)
     print(
         "GitHub runtime preflight passed: "
-        f"sources={source_count} items={item_count} keywords={keyword_count}"
+        f"sources={source_count} items={item_count} keywords={keyword_count} "
+        f"ark_keys={len(healthy_ark_keys)}"
     )
     return 0
 

@@ -20,7 +20,6 @@ from tools.local_feed_publisher import REDDIT_FEED_TARGETS, SUBSTACK_FEED_TARGET
 
 
 REQUIRED_FEEDS = {
-    "http://localhost:8001/feed/all.rss": "feeds/we-mp-rss.xml",
     "http://127.0.0.1:8787/rss/all.xml": "feeds/private-rss.xml",
     r"F:\coding\rss-ingest-local\data\grok-feeds\deals.xml": "feeds/grok/deals.xml",
     r"F:\coding\rss-ingest-local\data\grok-feeds\rumors.xml": "feeds/grok/rumors.xml",

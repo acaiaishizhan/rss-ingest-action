@@ -441,7 +441,7 @@ def _json_object_after_key(raw: str, key: str) -> Dict[str, Any]:
 
 def _format_x_status_text(payload: Dict[str, Any], user_payload: Optional[Dict[str, Any]] = None) -> str:
     text = _clean_text(str(payload.get("full_text") or payload.get("text") or ""))
-    if not text:
+    if not text or _is_x_link_only_text(text):
         return ""
     parts = ["X/Twitter 原帖"]
     user_payload = user_payload or {}
@@ -452,6 +452,91 @@ def _format_x_status_text(payload: Dict[str, Any], user_payload: Optional[Dict[s
     elif screen_name:
         parts.append(f"作者：@{screen_name}")
     created_at = _clean_text(str(payload.get("created_at") or ""))
+    if created_at:
+        parts.append(f"发布时间：{created_at}")
+    parts.append(f"正文：{text}")
+    return "\n".join(parts)
+
+
+def _is_x_link_only_text(text: str) -> bool:
+    without_urls = re.sub(r"https?://[^\s]+", " ", text or "", flags=re.I)
+    return not _clean_text(without_urls)
+
+
+def _x_author_parts(author_payload: Any) -> tuple[str, str]:
+    if not isinstance(author_payload, dict):
+        return "", ""
+    name = _clean_text(str(author_payload.get("name") or ""))
+    screen_name = _clean_text(str(author_payload.get("screen_name") or "")).strip("@")
+    return name, screen_name
+
+
+def _x_article_block_texts(article_payload: Dict[str, Any]) -> list[str]:
+    content = article_payload.get("content") or {}
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except Exception:
+            content = {}
+    if not isinstance(content, dict):
+        return []
+
+    blocks = content.get("blocks") or []
+    if not isinstance(blocks, list):
+        return []
+
+    texts = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        text = _clean_text(str(block.get("text") or ""))
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _format_fxtwitter_status_text(tweet_payload: Dict[str, Any]) -> str:
+    author_name, screen_name = _x_author_parts(tweet_payload.get("author"))
+    article = tweet_payload.get("article")
+    if isinstance(article, dict):
+        title = _clean_text(str(article.get("title") or ""))
+        blocks = _x_article_block_texts(article)
+        preview = _clean_text(str(article.get("preview_text") or ""))
+        if not blocks and preview:
+            blocks = [preview]
+        if blocks:
+            parts = ["X/Twitter 长文"]
+            if author_name and screen_name:
+                parts.append(f"作者：{author_name} (@{screen_name})")
+            elif author_name:
+                parts.append(f"作者：{author_name}")
+            elif screen_name:
+                parts.append(f"作者：@{screen_name}")
+            created_at = _clean_text(str(article.get("created_at") or tweet_payload.get("created_at") or ""))
+            if created_at:
+                parts.append(f"发布时间：{created_at}")
+            if title:
+                parts.append(f"标题：{title}")
+            if blocks:
+                parts.append("正文：")
+                parts.extend(blocks)
+            return "\n".join(parts)
+
+    raw_text = tweet_payload.get("raw_text") or ""
+    if isinstance(raw_text, dict):
+        raw_text = raw_text.get("text") or ""
+    text = _clean_text(str(tweet_payload.get("text") or raw_text or ""))
+    if not text or _is_x_link_only_text(text):
+        return ""
+
+    parts = ["X/Twitter 原帖"]
+    if author_name and screen_name:
+        parts.append(f"作者：{author_name} (@{screen_name})")
+    elif author_name:
+        parts.append(f"作者：{author_name}")
+    elif screen_name:
+        parts.append(f"作者：@{screen_name}")
+    created_at = _clean_text(str(tweet_payload.get("created_at") or ""))
     if created_at:
         parts.append(f"发布时间：{created_at}")
     parts.append(f"正文：{text}")
@@ -469,7 +554,7 @@ def _x_screen_name_from_author_url(author_url: str) -> str:
 
 def _format_x_oembed_status_text(payload: Dict[str, Any]) -> str:
     text = _extract_x_oembed_text(str(payload.get("html") or ""))
-    if not text:
+    if not text or _is_x_link_only_text(text):
         return ""
     parts = ["X/Twitter 原帖"]
     name = _clean_text(str(payload.get("author_name") or ""))
@@ -551,12 +636,45 @@ def _fetch_oembed_x_status_text(url: str, timeout: int) -> str:
     return text
 
 
+def _fetch_fxtwitter_x_status_text(url: str, timeout: int) -> str:
+    tweet_id = _x_status_id(url)
+    if not tweet_id:
+        raise RuntimeError("x status id not found")
+    api_url = f"https://api.fxtwitter.com/i/status/{tweet_id}"
+    resp = fetch_public_content(
+        api_url,
+        headers={"User-Agent": "rss-ingest-article-extractor/1.0"},
+        timeout=max(1, int(timeout or 12)),
+        max_bytes=max(1, int(getattr(config, "ARTICLE_FETCH_MAX_BYTES", 2 * 1024 * 1024) or 1)),
+        use_system_proxy=bool(config.USE_SYSTEM_PROXY),
+        proxy_fake_ip_host_allowlist={"api.fxtwitter.com"},
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code}: {(resp.text or '')[:200]}")
+    try:
+        payload = json.loads(resp.text or "{}")
+    except Exception as exc:
+        raise RuntimeError(f"fxtwitter returned invalid JSON: {(resp.text or '')[:200]}") from exc
+    tweet = payload.get("tweet") if isinstance(payload, dict) and payload.get("code") == 200 else None
+    if not isinstance(tweet, dict):
+        raise RuntimeError("fxtwitter tweet payload not found")
+    text = _format_fxtwitter_status_text(tweet)
+    if not text:
+        raise RuntimeError("fxtwitter x status text not found")
+    return text
+
+
 def _fetch_x_status_text(url: str, timeout: int) -> str:
     errors = []
     try:
         return _fetch_embedded_x_status_text(url, timeout)
     except Exception as exc:
         errors.append(f"embedded x fetch failed: {exc}")
+
+    try:
+        return _fetch_fxtwitter_x_status_text(url, timeout)
+    except Exception as exc:
+        errors.append(f"fxtwitter x fetch failed: {exc}")
 
     try:
         return _fetch_oembed_x_status_text(url, timeout)
@@ -670,6 +788,8 @@ const normalizeText = (value) => String(value || '').replace(/\s+/g, ' ').trim()
         if "log in" in body_text or "登录" in body_text:
             raise RuntimeError("x status fetch requires login")
         raise RuntimeError("browser x status fetch returned empty text")
+    if _is_x_link_only_text(text):
+        raise RuntimeError("browser x status fetch returned link-only text")
 
     parts = ["X/Twitter 原帖"]
     author = _clean_text(str(payload.get("author") or ""))

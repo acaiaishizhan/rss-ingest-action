@@ -112,7 +112,8 @@ def test_from_env_includes_grok_and_substack_snapshots(monkeypatch, tmp_path: Pa
     grok_sources = [source for source in config.sources if source.name.startswith("grok-")]
     substack_sources = [source for source in config.sources if source.name.startswith("substack-")]
     reddit_sources = [source for source in config.sources if source.name.startswith("reddit-")]
-    assert len(config.sources) == 21
+    assert len(config.sources) == 20
+    assert all(source.name != "we-mp-rss" for source in config.sources)
     assert len(grok_sources) == 9
     assert len(substack_sources) == 6
     assert all(source.soft_fail for source in substack_sources)
@@ -124,6 +125,7 @@ def test_from_env_includes_grok_and_substack_snapshots(monkeypatch, tmp_path: Pa
         for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")
     }
     assert {grok_dir / f"{key}.xml" for key in ("deals", "rumors", "cases", "burst", "tips", "peers", "resources", "codex", "claude")} <= set(config.watch_paths)
+    assert all("we-mp-rss" not in str(path) for path in config.watch_paths)
     assert any(source.name == "keyword-snapshot" and source.kind == "json" for source in config.sources)
     assert any(source.name == "prompthub-blog" and source.source == "https://www.prompthub.us/blog" for source in config.sources)
 

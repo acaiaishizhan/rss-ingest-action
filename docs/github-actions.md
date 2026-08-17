@@ -27,9 +27,8 @@ GitHub schedule (07/22/37/52, best effort) --+
 发布器运行在 WSL `Ubuntu-22.04`，复用用户 `openclaw` 已登录的 GitHub CLI。默认观察：
 
 - `/mnt/f/coding/solo-company/tools/private-rss/data/all.xml`
-- `/mnt/f/coding/we-mp-rss/data/db.db` 及其 WAL/SHM 文件
 
-Windows 任务每 10 分钟以 `--once` 运行一次，读取 `http://127.0.0.1:8001/feed/all.rss`、private-rss 的 `all.xml`、Grok feeds、6 个 Substack feed、PromptHub 官方博客、2 个 Reddit 搜索 feed 和本机 KEYWORD 快照。只有 XML/JSON 合法且语义内容发生变化时才提交；`lastBuildDate` 等 feed 级时间戳变化会忽略。we-mp-rss 的新条目若正文尚未生成，会等待下一班；超过 1 小时仍为空的坏条目会从发布快照中剔除，避免永久卡住其余正常文章。外部博客镜像抓取失败属于软失败，会保留最后一份好快照；Reddit 429 会遵循 `Retry-After` 或 10–20 秒退避。推送成功后发布器 dispatch RSS Action；GitHub schedule 作为电脑离线时的 best-effort 兜底。两种触发共享 `feishu-write` 并发组，重叠时只会排队串行。
+Windows 任务每 10 分钟以 `--once` 运行一次，读取 private-rss 的 `all.xml`、Grok feeds、6 个 Substack feed、PromptHub 官方博客、2 个 Reddit 搜索 feed 和本机 KEYWORD 快照。`we-mp-rss` 已于 2026-08-11 因微信公众平台旧文章接口关闭而永久退出活动源与监听路径，不得触发容器、扫码或恢复任务；历史数据库与最后一份 XML 只作只读存档。只有 XML/JSON 合法且语义内容发生变化时才提交；`lastBuildDate` 等 feed 级时间戳变化会忽略。外部博客镜像抓取失败属于软失败，会保留最后一份好快照；Reddit 429 会遵循 `Retry-After` 或 10–20 秒退避。推送成功后发布器 dispatch RSS Action；GitHub schedule 作为电脑离线时的 best-effort 兜底。两种触发共享 `feishu-write` 并发组，重叠时只会排队串行。
 
 私有仓库的数据提交采用滚动快照：如果当前 HEAD 已经是数据提交，发布器会 amend 并用 `--force-with-lease` 更新，只保留最新 XML，避免小时级更新让 Git 历史无限增长。配置提交不会被覆盖。
 
@@ -65,15 +64,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\register_local_feed_
 Action 设置 `RSS_SOURCE_MODE=github`。规则如下：
 
 - 公网 HTTP(S) 源正常运行。
-- `source-map.json` 中显式映射的 20 个飞书 RSS 记录改读私有 XML：we-mp-rss、private-rss、9 个 Grok feed、6 个 Substack feed、PromptHub 官方博客生成 feed 和 2 个 Reddit 搜索镜像。
+- `source-map.json` 中显式映射的 19 个活动飞书 RSS 记录改读私有 XML：private-rss、9 个 Grok feed、6 个 Substack feed、PromptHub 官方博客生成 feed 和 2 个 Reddit 搜索镜像。we-mp-rss 的历史 XML 不再参与运行映射。
 - `keyword_snapshot.json` 提供每日关键词索引；每班对快照未命中的新词仍会只读查询飞书再决定是否创建，避免两班之间重复建词。
 - 其他 localhost、私网 IP、本地路径和 Grok 文件源会跳过，不计作失败。
 - 私有仓库 checkout 失败时，公开源仍继续，Workflow 会记录 degraded warning。
 
 ## GitHub LLM provider
 
-GitHub runner 使用 Ark Coding Plan 的 `deepseek-v4-flash`，Secrets 为
-`ARK_API_KEY`、`ARK_BASE_URL`、`ARK_MODEL`。2026-07-15 曾因账户额度耗尽返回
+GitHub runner 使用 Ark Coding Plan 的 `ark-code-latest`，由控制台固定路由到 DeepSeek-V4-Flash 正式版。Secrets 为
+`ARK_API_KEY`、`ARK_API_KEY_2`、`ARK_BASE_URL`、`ARK_MODEL`。手动 preflight 会对两个 key 分别发起最小请求，任一 key 订阅失效、鉴权失败或返回空内容都会让预检失败。2026-07-15 曾因账户额度耗尽返回
 `HTTP 429 AccountQuotaExceeded`，额度恢复并通过最小请求验证后已切回 Ark；
 `DEEPSEEK_API_KEY` 仅保留为需要人工切换时的应急 provider，不参与当前生产运行。
 
