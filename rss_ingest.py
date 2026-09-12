@@ -4795,6 +4795,14 @@ def run_llm_queue(
                 state["now_ms"],
             )
 
+        extraction = article.get("extraction") or {}
+        if (urlparse(str(article.get("link") or "")).hostname or "").lower() in {"linux.do", "www.linux.do"} and extraction.get("status") == "fetch_error":
+            with lock:
+                stats["extraction_failed"] = stats.get("extraction_failed", 0) + 1
+                remember_write_failure("article_fetch_error: " + str(extraction.get("error") or "Linux DO first post unavailable"))
+            log(f"[Extract] Linux DO failed; retained for retry: {item['item_key']}")
+            return
+
         analysis = _analyze_with_llm_compat(
             article,
             prompt_config=prompt_config,

@@ -874,7 +874,7 @@ def extract_article_text(
                 raise RuntimeError('Linux DO first-post body missing; refusing title-only success')
             result.update(body, method='source_parser:linux_do_first_post', status='ok', content_length=len(body['text']))
         except Exception as exc:
-            result.update(status='fetch_error', error=str(exc))
+            result.update(text='', content_length=0, status='fetch_error', error=str(exc))
         return result
 
     hn_link_stub = _is_hacker_news_source(source_name, feed_url) and _is_hacker_news_link_stub(rss_text)

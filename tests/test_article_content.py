@@ -38,6 +38,22 @@ def test_missing_body_is_not_success(monkeypatch):
     monkeypatch.setattr(article_extractor,'_fetch_linux_do_reader',lambda *a,**k:SimpleNamespace(status_code=200,text='<h1>Title only</h1>'))
     r=article_extractor.extract_article_text('https://linux.do/t/topic/1','LINUX DO','',{'summary':'Title only'})
     assert r['status']=='fetch_error'
+    assert r['text']=='' and r['content_length']==0
+
+def test_failed_linux_extraction_never_reaches_llm_or_business_writes(monkeypatch):
+    monkeypatch.setattr(rss_ingest, 'ENABLE_TEXT_DEDUP', False)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('failed extraction must not reach LLM')
+    monkeypatch.setattr(rss_ingest, '_analyze_with_llm_compat', forbidden)
+    state={'source': {'name':'LINUX DO'}, 'now_ms': 1000000, 'updated_failed_items': []}
+    item={'source_id':'source', 'item_key':'https://linux.do/t/topic/1', 'entry_ts_ms':900000,
+          'article':{'title':'Title only', 'link':'https://linux.do/t/topic/1', 'content':'',
+                     'extraction':{'status':'fetch_error','error':'first post missing'}}}
+    stats={'llm_success':0, 'llm_failed':0}
+    rss_ingest.run_llm_queue([item], {'source':state}, '', set(), stats)
+    assert stats['extraction_failed']==1
+    assert stats['entries_written']==0
+    assert state['updated_failed_items'][0]['item_key']==item['item_key']
 
 def test_linux_images_are_eligible_for_attachment():
     assert rss_ingest.collect_article_image_urls({'link':'https://linux.do/t/topic/1','image_urls':['https://cdn.example/a.png']})==['https://cdn.example/a.png']
