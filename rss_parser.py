@@ -187,6 +187,7 @@ def _parse_jina_linux_do_html(url: str, raw_html: str) -> SimpleNamespace:
             "link": link,
             "title": title,
             "summary": title,
+            "_content_incomplete": True,
         }
         if published:
             entry["published"] = published

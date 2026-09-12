@@ -1182,6 +1182,8 @@ def collect_article_image_urls(
         urls.extend(fetch_x_media_urls(str(article.get("link") or "")))
     elif is_reddit_article(article):
         urls.extend(entry_image_urls(entry, base_url=str(article.get("link") or "")))
+    elif (urlparse(str(article.get("link") or "")).hostname or "").lower() in {"linux.do", "www.linux.do"}:
+        urls.extend(entry_image_urls(entry, base_url=str(article.get("link") or "")))
     else:
         return []
 
@@ -4654,8 +4656,7 @@ def split_sources_and_queue(
                     "source": source.get("name") or source.get("feed_url"),
                     "extraction": extraction,
                 }
-                if is_aipoju_article(article) or is_x_article(article) or is_reddit_article(article):
-                    article["image_urls"] = entry_image_urls(entry, base_url=article["link"])
+                article["image_urls"] = dedupe_strings((extraction.get("image_urls") or []) + entry_image_urls(entry, base_url=article["link"]))
 
                 queue.append(
                     {
@@ -4721,8 +4722,7 @@ def split_sources_and_queue(
                 "source": source.get("name") or source.get("feed_url"),
                 "extraction": extraction,
             }
-            if is_aipoju_article(article) or is_x_article(article) or is_reddit_article(article):
-                article["image_urls"] = entry_image_urls(entry, base_url=article["link"])
+            article["image_urls"] = dedupe_strings((extraction.get("image_urls") or []) + entry_image_urls(entry, base_url=article["link"]))
 
             queue.append(
                 {
@@ -4794,6 +4794,14 @@ def run_llm_queue(
                 reason,
                 state["now_ms"],
             )
+
+        extraction = article.get("extraction") or {}
+        if (urlparse(str(article.get("link") or "")).hostname or "").lower() in {"linux.do", "www.linux.do"} and extraction.get("status") == "fetch_error":
+            with lock:
+                stats["extraction_failed"] = stats.get("extraction_failed", 0) + 1
+                remember_write_failure("article_fetch_error: " + str(extraction.get("error") or "Linux DO first post unavailable"))
+            log(f"[Extract] Linux DO failed; retained for retry: {item['item_key']}")
+            return
 
         analysis = _analyze_with_llm_compat(
             article,

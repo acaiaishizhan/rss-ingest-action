@@ -12,6 +12,15 @@ RSS feed 经常只给标题、链接或短摘要。主流程需要尽量给 LLM 
 
 已覆盖：
 
+- `LINUX DO`
+  - RSS 遇挑战页后，已有 Jina 列表 fallback 只能取得标题；该类条目现在明确标记 `_content_incomplete`。
+  - 正文不完整时沿用公开 Jina Reader 请求原帖，提取 `post_1` 内的 `cooked` 或爬虫版 `itemprop=text` 正文。不混入导航、头像和回复。
+  - 保留正文中的作品/媒体 URL，并从 lightbox 优先取得原图；提取的 `image_urls` 同时传入正常队列和失败重试队列，复用原有飞书附件上传逻辑。
+  - 首帖缺失或读取失败返回 `fetch_error`，不把标题包装成成功全文；Reader 请求保留公网、重定向及大小限制，超时至少 30 秒。
+  - `fetch_error` 清空标题占位正文，并在 LLM 前进入现有失败重试池；不写 NEWS / FILTERED，不把采集失败交给内容筛选。
+  - 已有足够正文的 RSS 条目直接解析正文及链接，不额外请求原帖。
+  - 修复既有记录可用 `tools/backfill_linux_content.py`，默认只生成本地验证材料；显式 `--apply` 只补「全文」和空「图片」字段，保留 QA、已巡检、skip_reason 和投递记录，逐条读回校验。
+
 - `Hugging Face Blog`
   - feed：`https://huggingface.co/blog/feed.xml`
   - 问题：feed entry 有 title / link / published / id，但没有 `content` 和 `summary`。
