@@ -13,6 +13,7 @@ import requests
 import config
 from http_safety import fetch_public_content, is_public_http_url_literal
 from rss_parser import entry_text_content
+from article_content import extract_body
 
 
 MIN_USEFUL_TEXT_LENGTH = 120
@@ -856,6 +857,26 @@ def extract_article_text(
         "raw_excerpt_length": len(rss_text),
     }
 
+    # The Linux DO feed's Reader fallback is a title index, not article content.
+    # Fetch the first post through the same existing public Reader service.
+    if urlparse(url).hostname in {'linux.do', 'www.linux.do'}:
+        raw = entry_text_content(entry)
+        if not entry.get('_content_incomplete') and len(_clean_text(re.sub(r'<[^>]+>', '', raw))) >= min_length and raw != entry.get('title'):
+            body = extract_body(raw, url)
+            result.update(body, content_length=len(body['text']))
+            return result
+        try:
+            response = _fetch_linux_do_reader(url, timeout)
+            if response.status_code != 200:
+                raise RuntimeError(f'HTTP {response.status_code}: Linux DO article reader unavailable')
+            body = extract_body(response.text, url, 'discourse')
+            if not body['text']:
+                raise RuntimeError('Linux DO first-post body missing; refusing title-only success')
+            result.update(body, method='source_parser:linux_do_first_post', status='ok', content_length=len(body['text']))
+        except Exception as exc:
+            result.update(status='fetch_error', error=str(exc))
+        return result
+
     hn_link_stub = _is_hacker_news_source(source_name, feed_url) and _is_hacker_news_link_stub(rss_text)
     needs_medium_browser = _is_medium_article(url, source_name, feed_url) and (
         len(rss_text) < min_length or _is_medium_preview_text(rss_text)
@@ -922,3 +943,11 @@ def extract_article_text(
         result["status"] = "fetch_error" if "HTTP" in error_text or "timeout" in error_lower or "timed out" in error_lower else "parse_error"
         result["error"] = error_text
     return result
+
+
+def _fetch_linux_do_reader(url: str, timeout: int):
+    # Fixed public Reader host; retain existing SSRF/redirect/size checks.
+    return fetch_public_content('https://r.jina.ai/'+url,
+        headers={'x-respond-with':'html','x-cache-tolerance':'600'}, timeout=max(timeout,30),
+        max_bytes=config.ARTICLE_FETCH_MAX_BYTES, use_system_proxy=config.USE_SYSTEM_PROXY,
+        proxy_fake_ip_host_allowlist={'r.jina.ai'})

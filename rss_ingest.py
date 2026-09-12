@@ -1182,6 +1182,8 @@ def collect_article_image_urls(
         urls.extend(fetch_x_media_urls(str(article.get("link") or "")))
     elif is_reddit_article(article):
         urls.extend(entry_image_urls(entry, base_url=str(article.get("link") or "")))
+    elif (urlparse(str(article.get("link") or "")).hostname or "").lower() in {"linux.do", "www.linux.do"}:
+        urls.extend(entry_image_urls(entry, base_url=str(article.get("link") or "")))
     else:
         return []
 
@@ -4654,8 +4656,7 @@ def split_sources_and_queue(
                     "source": source.get("name") or source.get("feed_url"),
                     "extraction": extraction,
                 }
-                if is_aipoju_article(article) or is_x_article(article) or is_reddit_article(article):
-                    article["image_urls"] = entry_image_urls(entry, base_url=article["link"])
+                article["image_urls"] = dedupe_strings((extraction.get("image_urls") or []) + entry_image_urls(entry, base_url=article["link"]))
 
                 queue.append(
                     {
@@ -4721,8 +4722,7 @@ def split_sources_and_queue(
                 "source": source.get("name") or source.get("feed_url"),
                 "extraction": extraction,
             }
-            if is_aipoju_article(article) or is_x_article(article) or is_reddit_article(article):
-                article["image_urls"] = entry_image_urls(entry, base_url=article["link"])
+            article["image_urls"] = dedupe_strings((extraction.get("image_urls") or []) + entry_image_urls(entry, base_url=article["link"]))
 
             queue.append(
                 {
