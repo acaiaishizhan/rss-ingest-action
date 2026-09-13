@@ -2,6 +2,7 @@
 import sys
 import threading
 import time
+import pytest
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 os.environ.setdefault("RSS_INGEST_SKIP_LOCAL_ENV", "true")
@@ -2070,12 +2071,14 @@ def test_run_llm_queue_does_not_count_low_score_items_as_new(monkeypatch):
     assert source_states["source-1"]["new_count"] == 0
 
 
-def test_run_llm_queue_staged_low_score_still_writes_news(monkeypatch):
+@pytest.mark.parametrize("score", [5.9, 6.0, 6.1])
+@pytest.mark.parametrize("source", ["src", "LINUX DO"])
+def test_run_llm_queue_staged_content_score_gate(monkeypatch, score, source):
     created = []
     analysis = {
         "action": "ingest",
         "categories": ["AI工具与自动化"],
-        "score": 4.5,
+        "score": score,
         "reason": "薄信号保留",
         "title_zh": "标题",
         "summary": "摘要",
@@ -2093,13 +2096,16 @@ def test_run_llm_queue_staged_low_score_still_writes_news(monkeypatch):
     monkeypatch.setattr(
         rss_ingest,
         "create_record_with_keyword_multiselect_fallback",
-        lambda *args, **kwargs: created.append(args[3]) or (True, "rid-news"),
+        lambda *args, **kwargs: created.append((args[1], args[3])) or (True, "rid-news"),
     )
     monkeypatch.setattr(rss_ingest, "ensure_keyword_records", lambda *args, **kwargs: ["rec-kw"])
     monkeypatch.setattr(rss_ingest, "upload_article_images_for_attachment", lambda *args, **kwargs: [])
     monkeypatch.setattr(rss_ingest, "ENABLE_TEXT_DEDUP", False, raising=False)
     monkeypatch.setattr(rss_ingest.config, "LLM_CONCURRENCY", 1, raising=False)
     monkeypatch.setattr(rss_ingest.config, "FEISHU_MIN_SCORE", 6.0, raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_NEWS_TABLE_ID", "news")
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_FILTERED_TABLE_ID", "recycle")
+    monkeypatch.setattr(rss_ingest, "is_filtered_table_enabled", lambda: True)
 
     stats = {
         "llm_success": 0,
@@ -2114,7 +2120,7 @@ def test_run_llm_queue_staged_low_score_still_writes_news(monkeypatch):
             "source_id": "source-1",
             "item_key": "item-1",
             "entry_ts_ms": 1,
-            "article": {"title": "t", "content": "c", "link": "https://example.com", "source": "src"},
+            "article": {"title": "t", "content": "c", "link": "https://example.com", "source": source},
         }],
         {"source-1": {"updated_failed_items": [], "now_ms": 123, "new_count": 0}},
         "tenant",
@@ -2123,8 +2129,12 @@ def test_run_llm_queue_staged_low_score_still_writes_news(monkeypatch):
     )
 
     assert len(created) == 1
-    assert stats["entries_written"] == 1
-    assert stats["entries_low_score"] == 0
+    assert created[0][0] == ("news" if score >= 6.0 else "recycle")
+    assert stats.get("entries_written", 0) == int(score >= 6.0)
+    assert stats["entries_low_score"] == int(score < 6.0)
+    assert stats.get("filtered_skipped", 0) == 0
+    if score < 6.0:
+        assert "5.9 < 6.0" in created[0][1][rss_ingest.config.FILTERED_FIELD_FILTER_REASON]
 
 
 def test_run_llm_queue_retries_news_create_without_keyword_multiselect(monkeypatch):

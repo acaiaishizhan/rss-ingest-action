@@ -13,7 +13,7 @@
   - `docs/local-screen-triage-prompt.md`
   - `docs/local-screen-prompt.md`
 - `docs/local-summarize-prompt.md` 仅作为旧 fallback：screen 未输出 `qa` 时才会补跑。
-- screen 先在同一次初筛中输出 `keep / filter / uncertain` 与信号评分；低于 `TRIAGE_MIN_SCORE` 的条目直接进入 FILTERED。其余 `keep / uncertain` 再由内容处理一次输出内容评分、分类和 `title_zh + summary + keywords + qa`，且只允许 `uncertain` 在内容处理时改判 `pass`。内容处理评分只作字段，不再次决定去留。
+- screen 先在同一次初筛中输出 `keep / filter / uncertain` 与信号评分；低于 `TRIAGE_MIN_SCORE` 的条目直接进入 FILTERED。其余 `keep / uncertain` 再由内容处理一次输出内容评分、分类和 `title_zh + summary + keywords + qa`，且只允许 `uncertain` 在内容处理时改判 `pass`。内容处理评分按 `FEISHU_MIN_SCORE=6.0` 再次决定入库：低于 6 分进入回收站，正好 6 分保留；此类低分过滤也保存 LINUX DO 记录。
 - screen 阶段同时输出 `keywords: [{name, type}]`，写入新闻表和过滤表的 `关键词` 多选字段，并可通过 `关键词记录` 关联到 KEYWORD 表做归一化。
 - KEYWORD 表支持脚本同步 `NEWS次数`、`FILTERED次数`、`最后出现`、`热度样本`；这些是快照字段，不是实时趋势。
 - `merge_keywords.py` 支持关键词合并 fixture 测试、真实候选 dry-run、核心计数字段同步，以及把别名发现结果批量追加到 KEYWORD「归一项」。
