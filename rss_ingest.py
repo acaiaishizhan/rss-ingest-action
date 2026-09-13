@@ -4117,7 +4117,8 @@ def record_filtered_outcome(
     keyword_record_ids: Optional[List[str]] = None,
 ) -> bool:
     logged = False
-    skip_filtered_table = should_skip_filtered_table(article)
+    # Final content-score filtering must remain recoverable for every source.
+    skip_filtered_table = should_skip_filtered_table(article) and not get_llm_meta(analysis).get("content_score_filtered")
     if is_filtered_table_enabled() and not skip_filtered_table:
         logged = persist_filtered_article(article, analysis, item_key, tenant_token, keyword_record_ids=keyword_record_ids)
     processed = skip_filtered_table or not is_filtered_table_enabled() or logged
@@ -4910,9 +4911,8 @@ def run_llm_queue(
             return keyword_record_ids
 
         score = parse_score(analysis.get("score"))
-        staged_screening = bool(get_llm_meta(analysis).get("staged_screening"))
         created_news = False
-        if staged_screening or score is None or score >= config.FEISHU_MIN_SCORE:
+        if score is None or score >= config.FEISHU_MIN_SCORE:
             if ENABLE_TEXT_DEDUP and dedup_store.size() > 0:
                 title_zh = str(analysis.get("title_zh") or article.get("title") or "").strip()
                 fact_summary = screen_fact_summary(analysis)
@@ -5030,6 +5030,7 @@ def run_llm_queue(
                 "低分淘汰",
                 low_score_reason,
                 low_score_filtered=True,
+                content_score_filtered=True,
                 score=low_score,
             )
             recorded = record_filtered_outcome(
@@ -5040,7 +5041,7 @@ def run_llm_queue(
                 existing_keys,
                 stats,
                 lock,
-                keyword_record_ids=[] if should_skip_filtered_table(article) else ensure_current_keyword_records(),
+                keyword_record_ids=ensure_current_keyword_records(),
             )
             with lock:
                 if not recorded:

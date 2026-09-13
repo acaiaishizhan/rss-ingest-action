@@ -109,6 +109,7 @@ jobs:
           LLM_CONCURRENCY: "30"
           ENABLE_TRIAGE_SCORE_GATE: "true"
           TRIAGE_MIN_SCORE: "3.8"
+          FEISHU_MIN_SCORE: "6.0"
           USE_SYSTEM_PROXY: "false"
           ENABLE_BROWSER_ARTICLE_FETCH: "false"
           ENABLE_X_BROWSER_FALLBACK: "false"
