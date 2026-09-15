@@ -10,6 +10,14 @@ SOURCE_URL = "https://sopilot.net/zh/rank/tweets?range=6h"
 CATEGORIES = ("all", "AI", "Creator")
 
 
+def tweet_id_from_key(value):
+    parsed = urlparse(str(value or ""))
+    if parsed.hostname not in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}:
+        return None
+    match = re.fullmatch(r"/[^/]+/status/(\d+)/?", parsed.path)
+    return match[1] if match else None
+
+
 def is_sopilot_source(url):
     parsed = urlparse(str(url or ""))
     return (parsed.scheme == "https" and parsed.netloc == "sopilot.net"
@@ -124,7 +132,7 @@ def fetch_sopilot(fetch_text):
         images = [url for i, url in enumerate(tweet.get("mediaUrls", []))
                   if i < len(tweet.get("mediaTypes", [])) and tweet["mediaTypes"][i] == "photo"]
         entries.append({
-            "id": link, "link": link,
+            "id": f"https://x.com/i/status/{key}", "link": link,
             "title": f"{tweet.get('authorName') or author}：{first_line[:180]}",
             "published_parsed": published.astimezone(dt.timezone.utc).timetuple(),
             "content": [{"type": "text/plain", "value": tweet["text"]}],

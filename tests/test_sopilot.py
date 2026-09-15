@@ -60,7 +60,8 @@ def test_all_categories_all_pages_and_cross_rank_dedupe():
     feed = sopilot.fetch_sopilot(get)
     assert len(seen) == 6
     assert len(feed.entries) == 7
-    assert all(entry["id"] == entry["link"] for entry in feed.entries)
+    assert all(entry["id"].startswith("https://x.com/i/status/") for entry in feed.entries)
+    assert all(sopilot.tweet_id_from_key(entry["id"]) == sopilot.tweet_id_from_key(entry["link"]) for entry in feed.entries)
     assert len(set(feed.sopilot["tweet_ids"])) == 7
 
 
@@ -94,6 +95,18 @@ def test_old_newly_ranked_posts_over_200_reach_existing_queue(monkeypatch):
     assert all(item["entry_ts"] == old for item in queue)
     assert not rss_ingest.should_fetch({**source, "sopilot_batch": ""}, now * 1000)
     assert rss_ingest.compute_item_key_prefetch_since_ms([source], now * 1000) <= old * 1000
+
+
+def test_original_tweet_identity_survives_handle_and_domain_changes(monkeypatch):
+    now = int(time.time())
+    entry = {"id": "https://x.com/i/status/123", "link": "https://x.com/new_name/status/123",
+             "title": "already seen", "published_parsed": time.gmtime(now), "content": [{"value": "正文"}]}
+    monkeypatch.setattr(rss_ingest, "fetch_feed", lambda *a, **kw: SimpleNamespace(entries=[entry]))
+    monkeypatch.setattr(rss_ingest, "extract_article_text", lambda *a, **kw: {"text": "正文"})
+    source = {"feed_url": sopilot.SOURCE_URL, "enabled": True, "record_id": "source", "sopilot_batch": "test"}
+    queue, _, _ = rss_ingest.split_sources_and_queue([source], {"https://twitter.com/old_name/status/123"}, "unused")
+    assert not queue
+    assert sopilot.tweet_id_from_key("https://evilx.com/name/status/123") is None
 
 
 def test_completion_receipt_never_calls_partial_processing_complete(monkeypatch, tmp_path):

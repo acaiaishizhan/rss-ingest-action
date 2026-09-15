@@ -23,7 +23,7 @@ import requests
 
 import aihot_filter
 import config
-from sopilot import is_sopilot_source
+from sopilot import is_sopilot_source, tweet_id_from_key
 from http_safety import fetch_public_content
 from html_watch import (
     fetch_html_watch,
@@ -4603,6 +4603,10 @@ def split_sources_and_queue(
             entry_cutoff_ms = 0  # Deduplicate the complete rolling window by original ID.
 
         entries = feed.entries or []
+        if source_is_sopilot:
+            known_tweets = {tweet_id_from_key(key) for key in existing_keys} - {None}
+            existing_keys.update(entry["id"] for entry in entries
+                                 if tweet_id_from_key(entry.get("id")) in known_tweets)
         log(f"[RSS] fetched entries={len(entries)} for {source.get('name') or source.get('feed_url')}")
         stats["entries_fetched"] += len(entries)
         if not source_is_sopilot and config.MAX_ENTRIES_PER_FEED and len(entries) > config.MAX_ENTRIES_PER_FEED:
