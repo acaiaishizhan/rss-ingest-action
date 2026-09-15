@@ -44,6 +44,8 @@ def test_original_line_breaks_code_and_literal_entities_reach_processing():
     result = extract_article_text("https://x.com/a/status/1", "SoPilot", sopilot.SOURCE_URL, entry)
     assert result["text"] == body
     assert result["method"] == "source_parser:sopilot"
+    fields = rss_ingest.build_article_base_fields({"content": result["text"], "extraction": result}, "original-id")
+    assert fields["full_content"] == body
 
 
 def test_all_categories_all_pages_and_cross_rank_dedupe():

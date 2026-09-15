@@ -3143,10 +3143,13 @@ def build_article_base_fields(article: Dict[str, Any], item_key: str) -> Dict[st
         base_ts = published
     else:
         base_ts = time.time()
+    content = article.get("content") or ""
+    if (article.get("extraction") or {}).get("method") != "source_parser:sopilot":
+        content = clean_html_to_text(content)
     return {
         "published_ts_ms": int(base_ts * 1000),
         "source": article.get("source") or "未知来源",
-        "full_content": limit_feishu_cell_text(clean_html_to_text(article.get("content") or "")),
+        "full_content": limit_feishu_cell_text(content),
         "title": article.get("title") or "（无标题）",
         "link": article.get("link") or "",
         "item_key": item_key,
