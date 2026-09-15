@@ -14,6 +14,7 @@ import config
 from http_safety import fetch_public_content, is_public_http_url_literal
 from rss_parser import entry_text_content
 from article_content import extract_body
+from sopilot import is_sopilot_source
 
 
 MIN_USEFUL_TEXT_LENGTH = 120
@@ -846,6 +847,10 @@ def extract_article_text(
     min_length: int = MIN_USEFUL_TEXT_LENGTH,
     force_fetch: bool = False,
 ) -> Dict[str, Any]:
+    if is_sopilot_source(feed_url) and entry.get("_sopilot_complete") is True:
+        body = entry_text_content(entry)
+        return {"text": body, "method": "source_parser:sopilot", "status": "ok" if body else "empty",
+                "error": "", "content_length": len(body), "raw_excerpt_length": len(body)}
     rss_text = _clean_text(entry_text_content(entry))
     method = "rss_content" if entry.get("content") else ("rss_summary" if rss_text else "none")
     result = {

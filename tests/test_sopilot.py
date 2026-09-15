@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("RSS_INGEST_SKIP_LOCAL_ENV", "true")
 import rss_ingest
 import sopilot
+from article_extractor import extract_article_text
 
 
 def page_html(category="all", page=1, total=2, ids=("10",), long_text=False):
@@ -35,6 +36,14 @@ def test_unicode_length_frames_and_links_survive():
     assert "https://example.org/code" in props["risingTweets"][0]["text"]
     assert "🙂" in props["risingTweets"][0]["text"]
     assert len(props["risingTweets"][0]["text"]) > 500
+
+
+def test_original_line_breaks_code_and_literal_entities_reach_processing():
+    body = '步骤一\n```python\nif a < b:\n    print("&lt;")\n```\nhttps://example.org/code'
+    entry = {"content": [{"type": "text/plain", "value": body}], "_sopilot_complete": True}
+    result = extract_article_text("https://x.com/a/status/1", "SoPilot", sopilot.SOURCE_URL, entry)
+    assert result["text"] == body
+    assert result["method"] == "source_parser:sopilot"
 
 
 def test_all_categories_all_pages_and_cross_rank_dedupe():

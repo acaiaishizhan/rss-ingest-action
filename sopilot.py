@@ -1,6 +1,5 @@
 """Read the public six-hour rankings, preserving the server's tweet text."""
 import datetime as dt
-import html
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -128,7 +127,8 @@ def fetch_sopilot(fetch_text):
             "id": link, "link": link,
             "title": f"{tweet.get('authorName') or author}：{first_line[:180]}",
             "published_parsed": published.astimezone(dt.timezone.utc).timetuple(),
-            "content": [{"type": "text/html", "value": html.escape(tweet["text"]).replace("\n", "<br>\n")}],
+            "content": [{"type": "text/plain", "value": tweet["text"]}],
+            "_sopilot_complete": True,
             "media_content": [{"url": url, "medium": "image"} for url in images],
         })
     return SimpleNamespace(entries=entries, feed={"title": "SoPilot 6小时推文榜"},
