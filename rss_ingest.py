@@ -4605,8 +4605,10 @@ def split_sources_and_queue(
         entries = feed.entries or []
         if source_is_sopilot:
             known_tweets = {tweet_id_from_key(key) for key in existing_keys} - {None}
-            existing_keys.update(entry["id"] for entry in entries
-                                 if tweet_id_from_key(entry.get("id")) in known_tweets)
+            aliases = {entry["id"] for entry in entries
+                       if tweet_id_from_key(entry.get("id")) in known_tweets}
+            existing_keys.update(aliases)
+            queued_item_keys.update(aliases)
         log(f"[RSS] fetched entries={len(entries)} for {source.get('name') or source.get('feed_url')}")
         stats["entries_fetched"] += len(entries)
         if not source_is_sopilot and config.MAX_ENTRIES_PER_FEED and len(entries) > config.MAX_ENTRIES_PER_FEED:
