@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,7 @@ import requests
 
 import aihot_filter
 import config
+from sopilot import is_sopilot_source
 from http_safety import fetch_public_content
 from html_watch import (
     fetch_html_watch,
@@ -3116,6 +3118,8 @@ def normalize_source(record: Dict[str, Any]) -> Dict[str, Any]:
 def should_fetch(source: Dict[str, Any], now_ms: int) -> bool:
     if not source.get("enabled"):
         return False
+    if is_sopilot_source(source.get("feed_url")):
+        return bool(source.get("sopilot_batch"))
     interval_min = config.DEFAULT_FETCH_INTERVAL_MIN
     last_fetch = source.get("last_fetch_time") or 0
     last_item_pub = source.get("last_item_pub_time") or 0
@@ -4160,6 +4164,9 @@ def compute_item_key_prefetch_since_ms(
     now_ms: Optional[int] = None,
 ) -> int:
     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    if any(is_sopilot_source(s.get("feed_url")) for s in sources):
+        # A newly ranked post can already be nearly six hours old.
+        return max(0, now_ms - 7 * 86400 * 1000)
     cursors = []
     for source in sources or []:
         cursor = int(source.get("last_item_pub_time") or source.get("last_fetch_time") or 0)
@@ -4588,11 +4595,14 @@ def split_sources_and_queue(
         cutoff_ms = last_item_pub_time or (source.get("last_fetch_time") or 0)
         lookback_minutes = max(0, int(getattr(config, "RSS_FETCH_LOOKBACK_MINUTES", 0) or 0))
         entry_cutoff_ms = max(0, cutoff_ms - lookback_minutes * 60 * 1000) if cutoff_ms else 0
+        source_is_sopilot = is_sopilot_source(source.get("feed_url"))
+        if source_is_sopilot:
+            entry_cutoff_ms = 0  # Deduplicate the complete rolling window by original ID.
 
         entries = feed.entries or []
         log(f"[RSS] fetched entries={len(entries)} for {source.get('name') or source.get('feed_url')}")
         stats["entries_fetched"] += len(entries)
-        if config.MAX_ENTRIES_PER_FEED and len(entries) > config.MAX_ENTRIES_PER_FEED:
+        if not source_is_sopilot and config.MAX_ENTRIES_PER_FEED and len(entries) > config.MAX_ENTRIES_PER_FEED:
             entries = entries[: config.MAX_ENTRIES_PER_FEED]
         if source_is_aihot:
             entries = [aihot_filter.entry_for_ingest(entry, source=source) for entry in entries]
@@ -4761,6 +4771,7 @@ def run_llm_queue(
     prompt_config: Optional[Dict[str, Any]] = None,
     secondary_pending_items: Optional[List[Dict[str, Any]]] = None,
     keyword_index: Optional[Dict[str, KeywordRecord]] = None,
+    written_records: Optional[List[Dict[str, str]]] = None,
 ) -> None:
     total = len(queue)
     if total <= 0:
@@ -4987,7 +4998,7 @@ def run_llm_queue(
                 keyword_record_ids=ensure_current_keyword_records(),
                 image_file_tokens=image_file_tokens,
             )
-            ok, _ = create_record_with_keyword_multiselect_fallback(
+            ok, created_record_id = create_record_with_keyword_multiselect_fallback(
                 config.FEISHU_APP_TOKEN,
                 config.FEISHU_NEWS_TABLE_ID,
                 tenant_token,
@@ -5003,6 +5014,9 @@ def run_llm_queue(
                     remember_write_failure("news_create_failed")
             else:
                 created_news = True
+                if written_records is not None:
+                    with lock:
+                        written_records.append({"record_id": created_record_id, "item_key": item["item_key"], "link": article.get("link") or ""})
                 if ENABLE_TEXT_DEDUP:
                     t_zh = str(analysis.get("title_zh") or article.get("title") or "").strip()
                     b_sum = screen_fact_summary(analysis)
@@ -5092,7 +5106,7 @@ def run_llm_queue(
         future_items = {executor.submit(handle_item, item): item for item in queue}
         consume_futures(future_items)
 
-def main() -> int:
+def _main(sopilot_receipt=None) -> int:
     required = []
     if not config.FEISHU_APP_ID:
         required.append("FEISHU_APP_ID")
@@ -5174,6 +5188,15 @@ def main() -> int:
                 f"{skipped_source.name or skipped_source.record_id}: {skipped_source.reason}"
             )
     enabled_sources = [s for s in sources if s.get("enabled")]
+    if sopilot_receipt is not None:
+        enabled_sources = [s for s in enabled_sources if is_sopilot_source(s.get("feed_url"))]
+        if len(enabled_sources) != 1:
+            raise ValueError("The hourly batch requires exactly one enabled SoPilot source")
+        enabled_sources[0]["sopilot_batch"] = sopilot_receipt["batch_id"]
+        sopilot_receipt["source_id"] = enabled_sources[0]["record_id"]
+    else:
+        # The Info hourly task owns SoPilot cadence; ordinary RSS runs keep their scope.
+        enabled_sources = [s for s in enabled_sources if not is_sopilot_source(s.get("feed_url"))]
     log(f"[RSS] sources total={len(sources)} enabled={len(enabled_sources)}")
     try:
         existing_keys = prefetch_recent_item_keys_with_retries(tenant_token, enabled_sources)
@@ -5224,6 +5247,10 @@ def main() -> int:
         "source_state_update_failed": 0,
     }
     stats.update(fetch_stats)
+    if sopilot_receipt is not None:
+        sopilot_receipt["stats"] = stats
+        sopilot_receipt["queued_urls"] = [item["article"]["link"] for item in queue]
+        sopilot_receipt["news_records"] = []
     log(f"[Queue] total={stats['queue_total']} sources_processed={stats['sources_processed']} sources_skipped={stats['sources_skipped']}")
 
     secondary_pending_items: Optional[List[Dict[str, Any]]] = [] if secondary_sync_enabled else None
@@ -5236,6 +5263,7 @@ def main() -> int:
         prompt_config=prompt_config,
         secondary_pending_items=secondary_pending_items,
         keyword_index=keyword_index,
+        **({"written_records": sopilot_receipt["news_records"]} if sopilot_receipt is not None else {}),
     )
 
     if secondary_sync_enabled and secondary_pending_items is not None:
@@ -5292,6 +5320,11 @@ def main() -> int:
             continue
         log(f"[RSS] {source.get('name') or source.get('feed_url')} new={state['new_count']}")
 
+    if sopilot_receipt is not None:
+        sopilot_receipt["remaining_failed_items"] = sum(
+            len(prune_failed_items(state["updated_failed_items"], state["now_ms"]))
+            for state in source_states.values()
+        )
     log(
         "[Summary] "
         f"sources_done={stats['sources_processed']} "
@@ -5344,6 +5377,34 @@ def main() -> int:
     if all_queued_llm_items_failed:
         log("[LLM] fatal: every queued item failed; marking the run unsuccessful")
     return 1 if fatal_source_failures or has_processing_failure or all_queued_llm_items_failed else 0
+
+
+def main() -> int:
+    batch_id = os.getenv("SOPILOT_BATCH_ID", "").strip()
+    if not batch_id:
+        return _main()
+    if str(uuid.UUID(batch_id)) != batch_id:
+        raise ValueError("Invalid SoPilot batch ID")
+    receipt = {"batch_id": batch_id, "started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "complete": False}
+    code = 1
+    try:
+        code = _main(receipt)
+        stats = receipt.get("stats", {})
+        if (stats.get("sources_processed") != 1 or stats.get("llm_failed")
+                or stats.get("sources_failed") or receipt.get("remaining_failed_items")):
+            code = 1
+        if any(not row.get("record_id") for row in receipt.get("news_records", [])):
+            code = 1
+        receipt["complete"] = code == 0
+        return code
+    except Exception as exc:
+        receipt["error"] = str(exc)
+        raise
+    finally:
+        receipt["finished_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        target = config.BASE_DIR / "out" / "sopilot" / f"{batch_id}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def source_failures_are_fatal(stats: Dict[str, int]) -> bool:

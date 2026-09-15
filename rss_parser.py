@@ -15,6 +15,7 @@ import feedparser
 import requests
 
 import config
+from sopilot import fetch_sopilot, is_sopilot_source
 
 
 def _http_get(url: str, headers: Optional[Dict[str, str]], timeout: int) -> requests.Response:
@@ -230,6 +231,12 @@ def _fetch_linux_do_jina_fallback(url: str, headers: Optional[Dict[str, str]], t
 
 
 def fetch_feed(url: str, timeout: int, retries: int, headers: Optional[Dict[str, str]] = None) -> feedparser.FeedParserDict:
+    if is_sopilot_source(url):
+        def read_page(page_url):
+            response = _http_get(page_url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            return response.content.decode("utf-8")
+        return fetch_sopilot(read_page)
     last_err: Optional[Exception] = None
     for attempt in range(retries):
         try:

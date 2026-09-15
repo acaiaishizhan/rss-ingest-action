@@ -26,6 +26,17 @@
 - 支持飞书提醒记录表、过滤表和可选二次同步表。
 - GitHub Actions 默认每 15 分钟运行 RSS 主流程；本机 `rss-ingest-fetch` 只作为迁移回滚入口。Action 日志保留为 7 天 artifact，非零退出继续通过飞书 webhook 告警。
 
+## SoPilot 与小时 Info 衔接
+
+新增入口`sopilot.py`读取`https://sopilot.net/zh/rank/tweets?range=6h`，合并6h全领域、AI、Creator全部分页的飙升榜与曝光榜。公开内嵌数据中的UTF-8长度文本记录会被完整解析，保留正文外链和真实发布时间。
+
+RSS源表只注册一条上述URL，`enabled=true`、`item_id_strategy=guid`。普通RSS运行跳过此源；小时Info执行器通过`workflow_dispatch`传入唯一`sopilot_batch_id`，本次只选SoPilot来源，仍复用既有初筛、内容评分、关键词、语义去重与飞书写入。SoPilot不受普通源200条上限及发布时间水位限制，原帖身份仍去重。
+
+完成回执位于`out/sopilot/<batch_id>.json`，上传为`sopilot-<batch_id>` artifact。包含新增NEWS记录ID、队列URL、统计和完整成功标记；有抓取/处理/写入失败或未解决失败条目时不标完整成功。下游必须匹配本批UUID与成功回执，不能根据最近一次任意成功运行放行。
+
+只读采集：`python sopilot.py --out out/sopilot/capture.json`。
+离线验证：`python -m pytest tests/test_sopilot.py tests/test_rss_ingest_queue.py tests/test_rss_parser.py tests/test_rss_ingest_entrypoint.py -q`。
+
 ## 快速开始
 
 ```powershell
