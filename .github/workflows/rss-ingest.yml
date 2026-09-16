@@ -22,6 +22,7 @@ on:
 concurrency:
   group: feishu-write
   cancel-in-progress: false
+  queue: max
 
 jobs:
   ingest:
