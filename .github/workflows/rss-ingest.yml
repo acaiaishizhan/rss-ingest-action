@@ -7,26 +7,28 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      sopilot_batch_id:
-        description: Hourly Info batch UUID; process only the registered SoPilot source
-        required: false
-        type: string
       preflight_only:
         description: Validate secrets and private RSS snapshots without writing Feishu
         required: false
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      sopilot_batch_id:
+        description: Hourly Info batch UUID; only supplied by the dedicated SoPilot workflow
+        required: true
+        type: string
   schedule:
     - cron: "7,22,37,52 * * * *"
 
 concurrency:
-  group: feishu-write
+  # Scheduled RSS and dedicated SoPilot calls are independent execution lanes.
+  group: ${{ inputs.sopilot_batch_id && format('sopilot-info-{0}', inputs.sopilot_batch_id) || 'rss-ingest-normal' }}
   cancel-in-progress: false
-  queue: max
 
 jobs:
   ingest:
-    if: github.event_name == 'workflow_dispatch' || vars.RSS_INGEST_ENABLED == 'true'
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || vars.RSS_INGEST_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

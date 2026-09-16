@@ -197,7 +197,9 @@ NEWS / FILTERED 的「全文」写入前会被限制在 80000 字符内，避免
 
 ## GitHub Actions 与本地数据桥
 
-生产 RSS 入库由 `.github/workflows/rss-ingest.yml` 运行：每小时 `07 / 22 / 37 / 52` 分触发，也支持手动 `workflow_dispatch`。Action 使用 `RSS_SOURCE_MODE=github`，公开 HTTP(S) 源直接抓取；本地私有源通过私有 `rss-runtime-data` 仓库中的 `source-map.json` 映射为 XML 文件，并从同一仓库读取每日 KEYWORD 快照。未映射的 localhost、本地文件和 Grok feed 会被跳过，不计作源失败。
+生产普通 RSS 入库由 `.github/workflows/rss-ingest.yml` 运行：每小时 `07 / 22 / 37 / 52` 分触发，也支持普通源手动 `workflow_dispatch`。Info 每小时需要的 SoPilot 定向批次由独立的 `.github/workflows/sopilot-info.yml` 接收并调用同一份处理实现；两个入口使用不同并发组，普通 RSS 的排队不会阻塞或替换 SoPilot。普通入口不能传入 SoPilot 批次号。
+
+Action 使用 `RSS_SOURCE_MODE=github`，公开 HTTP(S) 源直接抓取；本地私有源通过私有 `rss-runtime-data` 仓库中的 `source-map.json` 映射为 XML 文件，并从同一仓库读取每日 KEYWORD 快照。未映射的 localhost、本地文件和 Grok feed 会被跳过，不计作源失败。
 
 本机只保留数据生产和发布：
 

@@ -1,0 +1,20 @@
+name: sopilot-info
+run-name: sopilot-${{ inputs.sopilot_batch_id }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      sopilot_batch_id:
+        description: Hourly Info batch UUID
+        required: true
+        type: string
+
+jobs:
+  ingest:
+    uses: ./.github/workflows/rss-ingest.yml
+    with:
+      sopilot_batch_id: ${{ inputs.sopilot_batch_id }}
+    secrets: inherit
