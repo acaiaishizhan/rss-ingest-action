@@ -16,7 +16,7 @@ from article_extractor import extract_article_text
 
 
 def page_html(category="all", page=1, total=2, ids=("10",), long_text=False):
-    text = "正文含链接 https://example.org/code 和中文🙂\n" * (20 if long_text else 1)
+    text = "AI Agent 正文含链接 https://example.org/code 和中文🙂\n" * (20 if long_text else 1)
     records = ""
     tweets = []
     for key in ids:
@@ -38,6 +38,14 @@ def test_unicode_length_frames_and_links_survive():
     assert len(props["risingTweets"][0]["text"]) > 500
 
 
+def test_source_prefilter_keeps_ai_and_concrete_creator_work_but_drops_general_noise():
+    assert sopilot.is_relevant_tweet({"text": "Codex Agent 用 Skill 自动生成视频"})
+    assert sopilot.is_relevant_tweet({"text": "创作者权益申请失败后的申诉步骤"})
+    assert sopilot.is_relevant_tweet({"text": "一人公司获客与定价复盘"})
+    assert not sopilot.is_relevant_tweet({"text": "美联储加息后比特币会涨吗"})
+    assert not sopilot.is_relevant_tweet({"text": "明星八卦与生活问答"})
+
+
 def test_original_line_breaks_code_and_literal_entities_reach_processing():
     body = '步骤一\n```python\nif a < b:\n    print("&lt;")\n```\nhttps://example.org/code'
     entry = {"content": [{"type": "text/plain", "value": body}], "_sopilot_complete": True}
@@ -48,7 +56,7 @@ def test_original_line_breaks_code_and_literal_entities_reach_processing():
     assert fields["full_content"] == body
 
 
-def test_all_categories_all_pages_and_cross_rank_dedupe():
+def test_relevant_categories_all_pages_and_cross_rank_dedupe():
     from urllib.parse import parse_qs, urlparse
     seen = []
     def get(url):
@@ -56,13 +64,15 @@ def test_all_categories_all_pages_and_cross_rank_dedupe():
         category, page = q.get("category", ["all"])[0], int(q.get("page", [1])[0])
         seen.append((category, page))
         key = str(100 * sopilot.CATEGORIES.index(category) + page)
-        return page_html(category, page, ids=("999", key))
+        return page_html(category, page, ids=("999", key), long_text=True)
     feed = sopilot.fetch_sopilot(get)
-    assert len(seen) == 6
-    assert len(feed.entries) == 7
+    assert seen == [("AI", 1), ("AI", 2), ("Creator", 1), ("Creator", 2)]
+    assert len(feed.entries) == 5
     assert all(entry["id"].startswith("https://x.com/i/status/") for entry in feed.entries)
     assert all(sopilot.tweet_id_from_key(entry["id"]) == sopilot.tweet_id_from_key(entry["link"]) for entry in feed.entries)
-    assert len(set(feed.sopilot["tweet_ids"])) == 7
+    assert len(set(feed.sopilot["tweet_ids"])) == 5
+    assert feed.sopilot["discovered"] == 5
+    assert feed.sopilot["prefiltered"] == 0
 
 
 def test_wrong_page_missing_payload_or_page_failure_is_not_empty():

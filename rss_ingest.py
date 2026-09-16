@@ -4611,6 +4611,8 @@ def split_sources_and_queue(
                        if tweet_id_from_key(entry.get("id")) in known_tweets}
             existing_keys.update(aliases)
             queued_item_keys.update(aliases)
+            stats["sopilot_discovered"] = int(getattr(feed, "sopilot", {}).get("discovered", len(entries)))
+            stats["sopilot_prefiltered"] = int(getattr(feed, "sopilot", {}).get("prefiltered", 0))
         log(f"[RSS] fetched entries={len(entries)} for {source.get('name') or source.get('feed_url')}")
         stats["entries_fetched"] += len(entries)
         if not source_is_sopilot and config.MAX_ENTRIES_PER_FEED and len(entries) > config.MAX_ENTRIES_PER_FEED:

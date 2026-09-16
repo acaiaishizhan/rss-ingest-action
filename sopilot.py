@@ -7,7 +7,47 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlencode, urlparse
 
 SOURCE_URL = "https://sopilot.net/zh/rank/tweets?range=6h"
-CATEGORIES = ("all", "AI", "Creator")
+# The unfiltered ranking is dominated by finance, celebrity, violence and other
+# general-interest posts. AI and Creator retain the two business-relevant pools;
+# semantic relevance is still decided by the existing NEWS + Info stages.
+CATEGORIES = ("AI", "Creator")
+
+STRONG_RELEVANCE_TERMS = (
+    "AI", "AIGC", "Agent", "智能体", "大模型", "模型", "LLM", "GPT", "ChatGPT",
+    "Claude", "Codex", "Gemini", "DeepSeek", "Grok", "OpenAI", "Anthropic", "xAI",
+    "Prompt", "提示词", "Skill", "MCP", "API", "vibe coding", "编程", "代码", "GitHub",
+    "开源", "自动化", "工作流", "Computer Use", "生图", "图像生成", "视频生成", "数字人",
+    "Seedance", "即梦", "豆包", "可灵", "Vidu", "ComfyUI", "Obsidian", "Remotion",
+    "Blender", "Figma", "飞书", "Notion", "RSS", "浏览器自动化", "Browser", "CLI",
+)
+DIRECT_CREATOR_TERMS = (
+    "创作者权益", "内容生产", "内容创作", "短视频", "公众号", "小红书", "抖音", "视频号",
+    "独立开发", "一人公司", "订阅收入", "用户增长", "产品增长", "账号增长",
+)
+CREATOR_CONTEXT_TERMS = (
+    "创作者", "自媒体", "口播", "剪辑", "封面", "配图", "选题", "变现", "获客", "MRR",
+    "创业", "收入", "营收", "定价", "运营", "营销", "SEO", "广告", "粉丝", "直播", "社群",
+    "平台权益", "申诉",
+)
+
+
+def _has_term(text, term):
+    if term.isascii() and len(term) <= 3:
+        return re.search(rf"(?<![a-z0-9]){re.escape(term.lower())}(?![a-z0-9])", text) is not None
+    return term.lower() in text
+
+
+def relevance_signals(text):
+    normalized = str(text or "").lower()
+    strong = [term for term in STRONG_RELEVANCE_TERMS if _has_term(normalized, term)]
+    direct = [term for term in DIRECT_CREATOR_TERMS if _has_term(normalized, term)]
+    context = [term for term in CREATOR_CONTEXT_TERMS if _has_term(normalized, term)]
+    return {"strong": strong, "direct_creator": direct, "creator_context": context}
+
+
+def is_relevant_tweet(tweet):
+    signals = relevance_signals(tweet.get("text"))
+    return bool(signals["strong"] or signals["direct_creator"] or len(set(signals["creator_context"])) >= 2)
 
 
 def tweet_id_from_key(value):
@@ -121,6 +161,8 @@ def fetch_sopilot(fetch_text):
             previous = tweets.get(key)
             if previous is None or len(tweet["text"]) > len(previous["text"]):
                 tweets[key] = dict(tweet)
+    discovered = len(tweets)
+    tweets = {key: tweet for key, tweet in tweets.items() if is_relevant_tweet(tweet)}
     entries = []
     for key, tweet in sorted(tweets.items()):
         author = str(tweet["screenName"])
@@ -141,7 +183,8 @@ def fetch_sopilot(fetch_text):
         })
     return SimpleNamespace(entries=entries, feed={"title": "SoPilot 6小时推文榜"},
                            sopilot={"captured_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-                                    "pages": [url for url, _ in pages], "tweet_ids": sorted(tweets)})
+                                    "pages": [url for url, _ in pages], "tweet_ids": sorted(tweets),
+                                    "discovered": discovered, "prefiltered": discovered - len(tweets)})
 
 
 if __name__ == "__main__":

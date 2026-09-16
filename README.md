@@ -28,9 +28,11 @@
 
 ## SoPilot 与小时 Info 衔接
 
-新增入口`sopilot.py`读取`https://sopilot.net/zh/rank/tweets?range=6h`，合并6h全领域、AI、Creator全部分页的飙升榜与曝光榜。公开内嵌数据中的UTF-8长度文本记录会被完整解析，保留正文外链和真实发布时间。
+新增入口`sopilot.py`读取`https://sopilot.net/zh/rank/tweets?range=6h`，合并6h AI、Creator全部分页的飙升榜与曝光榜。2026-09-16真实审计发现“全部领域”独有结果主要是国际局势、币圈、情色八卦、暴力事件和生活问答，已从常驻入口删除，不得自动恢复。公开内嵌数据中的UTF-8长度文本记录会被完整解析，保留正文外链和真实发布时间。
 
 RSS源表只注册一条上述URL，`enabled=true`、`item_id_strategy=guid`。普通RSS运行跳过此源；小时Info执行器通过`workflow_dispatch`传入唯一`sopilot_batch_id`，本次只选SoPilot来源，仍复用既有初筛、内容评分、关键词、语义去重与飞书写入。SoPilot不受普通源200条上限及发布时间水位限制，原帖身份仍去重。
+
+进入LLM前先做一层本地高召回相关性预筛：保留明确AI/Agent/模型/工具/生产工作流信号，以及具体创作者生产、一人公司和增长经营信号；其余不调用LLM，也不写入FILTERED回收站。该门禁只负责挡明显无关内容，最终价值判断仍由原有NEWS与Info流程负责。真实两天数据回放中，门禁挡掉约三分之二的SoPilot回收站记录，并保留全部已投递条目；后续以`stats.sopilot_discovered`与`stats.sopilot_prefiltered`持续观察。
 
 完成回执位于`out/sopilot/<batch_id>.json`，上传为`sopilot-<batch_id>` artifact。包含新增NEWS记录ID、队列URL、统计和完整成功标记；有抓取/处理/写入失败或未解决失败条目时不标完整成功。下游必须匹配本批UUID与成功回执，不能根据最近一次任意成功运行放行。
 
