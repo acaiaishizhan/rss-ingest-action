@@ -25,6 +25,7 @@ LOG_TAIL_MAX_CHARS = 1500
 LOG_CONTEXT_MAX_BYTES = 2_000_000
 TASK_DISPLAY_NAMES = {
     "rss-ingest-fetch": "资讯抓取",
+    "sopilot-info": "小时资讯上游",
     "grok-watch-hourly": "Grok 热点抓取",
     "keyword-alias-daily": "每日关键词整理",
     "keyword-audit-repair-daily": "关键词巡检修复",
@@ -144,6 +145,23 @@ def diagnose_failure(task: str, log_text: str, exit_code: int = 1) -> FailureDia
     failed = counts.get("llm_failed", 0)
     lower = log_text.lower()
     detail = _clean_error_excerpt(log_text)
+
+    if (
+        task == "sopilot-info"
+        and failed > 0
+        and queued > failed
+        and not any(counts.get(key, 0) for key in (
+            "sources_failed", "filtered_log_failed", "feishu_failed",
+            "sync_failed", "source_state_failed",
+        ))
+    ):
+        return FailureDiagnosis(
+            "需要排查",
+            "少量候选资讯在自动续跑后仍未完成，恢复次数已经用尽。",
+            f"其余候选已完成；仍有 {failed} 条等待处理，不影响已经写入的记录。",
+            "检查 provider 连接和失败条目；不要重跑已经成功写入的内容。",
+            detail,
+        )
 
     if exit_code == 3 or "another rss-ingest run is already active" in lower or "single-instance lock" in lower:
         return FailureDiagnosis(

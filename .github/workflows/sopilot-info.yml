@@ -11,10 +11,16 @@ on:
         description: Hourly Info batch UUID
         required: true
         type: string
+      sopilot_recovery_attempt:
+        description: Zero-based automatic recovery attempt
+        required: false
+        default: 0
+        type: number
 
 jobs:
   ingest:
     uses: ./.github/workflows/rss-ingest.yml
     with:
       sopilot_batch_id: ${{ inputs.sopilot_batch_id }}
+      sopilot_recovery_attempt: ${{ inputs.sopilot_recovery_attempt }}
     secrets: inherit

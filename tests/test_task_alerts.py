@@ -47,6 +47,18 @@ def test_build_message_explains_ark_quota_failure_in_plain_language():
     assert "entries_fetched" not in text
 
 
+def test_sopilot_partial_alert_after_recovery_exhaustion_reports_only_failed_items():
+    log_text = """
+[LLM] task failed: Connection reset by peer
+[Summary] sources_done=1 sources_failed=0 queue_total=56 llm_failed=1 feishu_failed=0 filtered_log_failed=0 sync_failed=0 source_state_failed=0 written=12
+"""
+    text = task_alerts.build_message("sopilot-info", 1, log_text=log_text)
+
+    assert text.startswith("[需要排查] 小时资讯上游")
+    assert "仍有 1 条等待处理" in text
+    assert "56 条候选资讯暂未处理" not in text
+
+
 def test_build_message_explains_keyword_audit_failure_in_plain_language():
     log_text = """
 {

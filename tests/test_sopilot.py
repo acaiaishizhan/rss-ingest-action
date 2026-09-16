@@ -132,3 +132,18 @@ def test_completion_receipt_never_calls_partial_processing_complete(monkeypatch,
     saved = json.loads((tmp_path / "out/sopilot" / f"{batch}.json").read_text())
     assert saved["complete"] is False
     assert saved["batch_id"] == batch
+
+
+def test_only_durable_partial_llm_progress_is_retryable():
+    partial = {
+        "batch_id": "batch", "complete": False, "remaining_failed_items": 1,
+        "news_records": [{"record_id": "recABC"}],
+        "stats": {"sources_processed": 1, "queue_total": 56, "llm_failed": 1},
+    }
+    assert sopilot.is_retryable_partial_receipt(partial, "batch")
+    assert not sopilot.is_retryable_partial_receipt(
+        {**partial, "stats": {**partial["stats"], "feishu_create_failed": 1}}, "batch"
+    )
+    assert not sopilot.is_retryable_partial_receipt(
+        {**partial, "stats": {**partial["stats"], "llm_failed": 56}}, "batch"
+    )

@@ -89,3 +89,49 @@ def test_cli_entrypoint_writes_run_log_and_passes_it_to_alert(tmp_path, monkeypa
     assert calls == [
         ("rss-ingest-fetch", 1, {"log_path": str(log_path)})
     ]
+
+
+def test_cli_entrypoint_keeps_retryable_sopilot_partial_failure_silent(tmp_path, monkeypatch):
+    batch = "00000000-0000-4000-8000-000000000001"
+    receipt_dir = tmp_path / "out" / "sopilot"
+    receipt_dir.mkdir(parents=True)
+    (receipt_dir / f"{batch}.json").write_text(
+        __import__("json").dumps({
+            "batch_id": batch, "complete": False, "remaining_failed_items": 1,
+            "news_records": [{"record_id": "recABC"}],
+            "stats": {"sources_processed": 1, "queue_total": 56, "llm_failed": 1},
+        }),
+        encoding="utf-8",
+    )
+    calls = []
+    monkeypatch.setattr(rss_ingest.config, "BASE_DIR", tmp_path)
+    monkeypatch.setenv("SOPILOT_BATCH_ID", batch)
+    monkeypatch.setenv("SOPILOT_RECOVERY_ATTEMPT", "0")
+    monkeypatch.setattr(rss_ingest, "run_with_single_instance_lock", lambda: 1)
+    monkeypatch.setattr(task_alerts, "notify_failure", lambda *a, **k: calls.append((a, k)))
+
+    assert rss_ingest.cli_entrypoint() == 1
+    assert calls == []
+
+
+def test_cli_entrypoint_reports_retryable_sopilot_failure_after_recovery_exhaustion(tmp_path, monkeypatch):
+    batch = "00000000-0000-4000-8000-000000000001"
+    receipt_dir = tmp_path / "out" / "sopilot"
+    receipt_dir.mkdir(parents=True)
+    (receipt_dir / f"{batch}.json").write_text(
+        __import__("json").dumps({
+            "batch_id": batch, "complete": False, "remaining_failed_items": 1,
+            "news_records": [{"record_id": "recABC"}],
+            "stats": {"sources_processed": 1, "queue_total": 56, "llm_failed": 1},
+        }),
+        encoding="utf-8",
+    )
+    calls = []
+    monkeypatch.setattr(rss_ingest.config, "BASE_DIR", tmp_path)
+    monkeypatch.setenv("SOPILOT_BATCH_ID", batch)
+    monkeypatch.setenv("SOPILOT_RECOVERY_ATTEMPT", "3")
+    monkeypatch.setattr(rss_ingest, "run_with_single_instance_lock", lambda: 1)
+    monkeypatch.setattr(task_alerts, "notify_failure", lambda task, code, **kwargs: calls.append((task, code)))
+
+    assert rss_ingest.cli_entrypoint() == 1
+    assert calls == [("sopilot-info", 1)]

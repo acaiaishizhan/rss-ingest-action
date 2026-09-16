@@ -12,6 +12,27 @@ SOURCE_URL = "https://sopilot.net/zh/rank/tweets?range=6h"
 # semantic relevance is still decided by the existing NEWS + Info stages.
 CATEGORIES = ("AI", "Creator")
 
+
+def is_retryable_partial_receipt(receipt, batch_id=""):
+    """A partial LLM miss is safe to retry because durable writes already succeeded."""
+    stats = (receipt or {}).get("stats") or {}
+    durable_failures = (
+        "sources_failed", "filtered_log_failed", "feishu_create_failed",
+        "secondary_sync_failed", "source_state_update_failed",
+    )
+    return (
+        isinstance(receipt, dict)
+        and (not batch_id or receipt.get("batch_id") == batch_id)
+        and receipt.get("complete") is False
+        and not receipt.get("error")
+        and stats.get("sources_processed") == 1
+        and isinstance(receipt.get("news_records"), list)
+        and int(stats.get("llm_failed") or 0) > 0
+        and int(stats.get("llm_failed") or 0) < int(stats.get("queue_total") or 0)
+        and int(receipt.get("remaining_failed_items") or 0) > 0
+        and all(int(stats.get(key) or 0) == 0 for key in durable_failures)
+    )
+
 STRONG_RELEVANCE_TERMS = (
     "AI", "AIGC", "Agent", "智能体", "大模型", "模型", "LLM", "GPT", "ChatGPT",
     "Claude", "Codex", "Gemini", "DeepSeek", "Grok", "OpenAI", "Anthropic", "xAI",

@@ -18,6 +18,11 @@ on:
         description: Hourly Info batch UUID; only supplied by the dedicated SoPilot workflow
         required: true
         type: string
+      sopilot_recovery_attempt:
+        description: Zero-based automatic recovery attempt
+        required: false
+        default: 0
+        type: number
   schedule:
     - cron: "7,22,37,52 * * * *"
 
@@ -110,6 +115,7 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.preflight_only != true
         env:
           SOPILOT_BATCH_ID: ${{ inputs.sopilot_batch_id }}
+          SOPILOT_RECOVERY_ATTEMPT: ${{ inputs.sopilot_recovery_attempt }}
           PYTHONUNBUFFERED: "1"
           TZ: Asia/Shanghai
           RSS_INGEST_SKIP_LOCAL_ENV: "true"

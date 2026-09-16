@@ -23,7 +23,7 @@ import requests
 
 import aihot_filter
 import config
-from sopilot import is_sopilot_source, tweet_id_from_key
+from sopilot import is_retryable_partial_receipt, is_sopilot_source, tweet_id_from_key
 from http_safety import fetch_public_content
 from html_watch import (
     fetch_html_watch,
@@ -5471,8 +5471,28 @@ def cli_entrypoint(run_log_path: Optional[str] = None) -> int:
             try:
                 import task_alerts
 
-                alert_kwargs = {"log_path": str(resolved_log_path)} if resolved_log_path else {}
-                task_alerts.notify_failure("rss-ingest-fetch", code, **alert_kwargs)
+                batch_id = os.getenv("SOPILOT_BATCH_ID", "").strip()
+                recovery_attempt = int(os.getenv("SOPILOT_RECOVERY_ATTEMPT", "0") or 0)
+                defer_alert = False
+                if batch_id and recovery_attempt < 3:
+                    try:
+                        receipt_path = config.BASE_DIR / "out" / "sopilot" / f"{batch_id}.json"
+                        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                        defer_alert = is_retryable_partial_receipt(receipt, batch_id)
+                    except (OSError, ValueError, TypeError):
+                        defer_alert = False
+                if defer_alert:
+                    log(
+                        "[task-alerts] silent recoverable SoPilot partial failure "
+                        f"batch={batch_id} attempt={recovery_attempt}; orchestrator will retry"
+                    )
+                else:
+                    alert_kwargs = {"log_path": str(resolved_log_path)} if resolved_log_path else {}
+                    task_alerts.notify_failure(
+                        "sopilot-info" if batch_id else "rss-ingest-fetch",
+                        code,
+                        **alert_kwargs,
+                    )
             except Exception as exc:
                 log(f"[RSS] failure alert error (ignored): {exc}")
         sys.stdout = original_stdout
