@@ -1475,7 +1475,9 @@ def has_failed_categories(analysis: Dict[str, Any]) -> bool:
 
 def is_terminal_llm_failure_reason(reason: str) -> bool:
     normalized = str(reason or "").lower()
-    return "sensitivecontentdetected" in normalized or normalized.startswith("content_policy:")
+    return ("sensitivecontentdetected" in normalized
+            or normalized.startswith("content_policy:")
+            or normalized == "content_filter")
 
 
 def mark_analysis_provider(analysis: Dict[str, Any], provider: str) -> Dict[str, Any]:

@@ -20,6 +20,16 @@ def qa_items():
     ]
 
 
+@pytest.mark.parametrize("reason,terminal", [
+    ("content_filter", True),
+    ("content_policy: SensitiveContentDetected", True),
+    ("timeout", False),
+    ("invalid JSON", False),
+])
+def test_policy_refusals_are_terminal_but_transient_failures_are_not(reason, terminal):
+    assert rss_ingest.is_terminal_llm_failure_reason(reason) is terminal
+
+
 def test_collect_queue_items_skips_existing_keys():
     items = [
         {"item_key": "a", "content": "x"},
