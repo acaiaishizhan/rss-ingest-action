@@ -22,7 +22,6 @@ from tools.local_feed_publisher import validate_feed_bytes, validate_keyword_sna
 
 REQUIRED_ENV = (
     "ARK_API_KEY",
-    "ARK_API_KEY_2",
     "FEISHU_APP_ID",
     "FEISHU_APP_SECRET",
     "FEISHU_APP_TOKEN",
@@ -38,14 +37,14 @@ def validate_ark_keys(
     *,
     post: Callable = requests.post,
 ) -> tuple[str, ...]:
-    keys = (
+    configured_keys = (
         ("ARK_API_KEY", str(env.get("ARK_API_KEY") or "").strip()),
         ("ARK_API_KEY_2", str(env.get("ARK_API_KEY_2") or "").strip()),
     )
-    missing = [name for name, value in keys if not value]
-    if missing:
-        raise RuntimeError(f"missing required GitHub Secrets: {', '.join(missing)}")
-    if keys[0][1] == keys[1][1]:
+    if not configured_keys[0][1]:
+        raise RuntimeError("missing required GitHub Secrets: ARK_API_KEY")
+    keys = tuple((name, value) for name, value in configured_keys if value)
+    if len(keys) > 1 and keys[0][1] == keys[1][1]:
         raise RuntimeError("ARK_API_KEY and ARK_API_KEY_2 must be distinct")
 
     base_url = str(

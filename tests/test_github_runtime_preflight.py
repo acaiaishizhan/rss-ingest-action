@@ -103,6 +103,25 @@ def test_validate_ark_keys_checks_each_key_independently() -> None:
     ]
 
 
+def test_validate_ark_keys_accepts_single_primary_key() -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "OK"}}]}
+
+    def post(url, *, headers, json, timeout):
+        calls.append(headers["Authorization"])
+        return Response()
+
+    env = {"ARK_API_KEY": "key-one", "ARK_API_KEY_2": ""}
+
+    assert validate_ark_keys(env, post=post) == ("ARK_API_KEY",)
+    assert calls == ["Bearer key-one"]
+
+
 def test_validate_ark_keys_reports_the_failed_slot_without_leaking_the_key() -> None:
     class Response:
         status_code = 400
