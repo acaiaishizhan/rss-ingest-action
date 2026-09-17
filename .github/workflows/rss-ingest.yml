@@ -21,8 +21,8 @@ on:
       sopilot_recovery_attempt:
         description: Zero-based automatic recovery attempt
         required: false
-        default: 0
-        type: number
+        default: "0"
+        type: string
   schedule:
     - cron: "7,22,37,52 * * * *"
 
