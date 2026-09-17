@@ -114,6 +114,30 @@ def test_cli_entrypoint_keeps_retryable_sopilot_partial_failure_silent(tmp_path,
     assert calls == []
 
 
+def test_cli_entrypoint_keeps_transient_sopilot_source_failure_silent(tmp_path, monkeypatch):
+    batch = "00000000-0000-4000-8000-000000000001"
+    receipt_dir = tmp_path / "out" / "sopilot"
+    receipt_dir.mkdir(parents=True)
+    (receipt_dir / f"{batch}.json").write_text(
+        __import__("json").dumps({
+            "batch_id": batch, "complete": False, "remaining_failed_items": 0,
+            "news_records": [],
+            "stats": {"sources_processed": 0, "sources_failed": 1,
+                      "queue_total": 0, "llm_failed": 0},
+        }),
+        encoding="utf-8",
+    )
+    calls = []
+    monkeypatch.setattr(rss_ingest.config, "BASE_DIR", tmp_path)
+    monkeypatch.setenv("SOPILOT_BATCH_ID", batch)
+    monkeypatch.setenv("SOPILOT_RECOVERY_ATTEMPT", "0")
+    monkeypatch.setattr(rss_ingest, "run_with_single_instance_lock", lambda: 1)
+    monkeypatch.setattr(task_alerts, "notify_failure", lambda *a, **k: calls.append((a, k)))
+
+    assert rss_ingest.cli_entrypoint() == 1
+    assert calls == []
+
+
 def test_cli_entrypoint_reports_retryable_sopilot_failure_after_recovery_exhaustion(tmp_path, monkeypatch):
     batch = "00000000-0000-4000-8000-000000000001"
     receipt_dir = tmp_path / "out" / "sopilot"
