@@ -29,6 +29,8 @@ from xml.sax.saxutils import escape
 
 import requests
 
+from screening_value import validate_candidates
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_TOPICS_PATH = PROJECT_ROOT / "docs" / "local-grok-topics.json"
 DEFAULT_STATE_PATH = PROJECT_ROOT / "data" / "grok_watch_state.json"
@@ -698,20 +700,14 @@ LOW_CRED_VIEWS = 50
 
 
 def hard_filter(item: Dict[str, Any], tweet: Dict[str, Any], now_ms: int, window_hours: int) -> Optional[str]:
+    # Semantic assessment comes from this search, never from a higher score.
+    if isinstance(item.get("increment"), dict) and item["increment"].get("kind") == "none":
+        return "low_increment"
     created_ms = int(tweet.get("created_ms") or 0)
     if created_ms <= 0:
         return "no_timestamp"
     if now_ms - created_ms > int(window_hours) * 3600 * 1000:
         return "stale"
-    if (
-        str(tweet.get("platform") or "x") == "x"
-        and
-        str(item.get("category") or "") == "deal"
-        and int(tweet.get("followers") or 0) < LOW_CRED_FOLLOWERS
-        and int(tweet.get("views") or 0) < LOW_CRED_VIEWS
-        and not str(item.get("official_url") or "").strip()
-    ):
-        return "low_cred_deal"
     return None
 
 
@@ -727,25 +723,30 @@ EXTRA_DESC_KEYS = (
     "traction", "cold_start", "gap_signal", "why_hot", "content_angle",
     "heat_stage", "effective_date", "resource_type", "target_user",
     "repro_steps", "workflow_type", "pain_point", "fix_or_workaround",
+    "evidence_strength", "time_confidence",
 )
 
 
 def build_item_description(item: Dict[str, Any], tweet: Dict[str, Any]) -> str:
-    parts: List[str] = []
+    # Plain-text markers survive RSS HTML cleaning and Feishu fulltext storage.
+    parts: List[str] = ["[来源分层] 回查仅确认帖文/作者/时间，不认证业绩或产品能力；后半为Grok搜索笔记。"]
     if tweet.get("text"):
-        parts.append(str(tweet["text"]).strip())
+        parts.append("[原帖正文] " + str(tweet["text"]).strip())
+    parts.append("[原帖正文结束][Grok搜索笔记开始：非独立证据，不能当作者原话]")
+    if item.get("increment"):
+        parts.append("[候选增量自评] " + json.dumps(item["increment"], ensure_ascii=False))
     summary = str(item.get("summary") or "").strip()
     if summary:
         parts.append(f"[Grok摘要] {summary}")
     evidence = str(item.get("evidence") or "").strip()
     if evidence:
-        parts.append(f"[证据] {evidence}")
+        parts.append(f"[Grok所述依据] {evidence}")
     flags = [str(f).strip() for f in (item.get("red_flags") or []) if str(f).strip()]
     if flags:
         parts.append("[红旗] " + "、".join(flags))
     score = item.get("signal_score")
     if isinstance(score, (int, float)) and score:
-        parts.append(f"[评分] {int(score)}/5")
+        parts.append(f"[候选排序分，非可信度] {int(score)}/5")
     extras = [
         f"{key}: {str(item[key]).strip()}"
         for key in EXTRA_DESC_KEYS
@@ -1177,7 +1178,8 @@ def _read_prompt(topic: Dict[str, Any]) -> str:
     path = Path(topic["prompt_file"])
     if not path.is_absolute():
         path = PROJECT_ROOT / path
-    return path.read_text(encoding="utf-8")
+    quality = (PROJECT_ROOT / "docs" / "local-grok-quality.md").read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8") + "\n\n" + quality
 
 
 def process_topic(
@@ -1194,8 +1196,9 @@ def process_topic(
     provider_succeeded = False
     provider_errors: List[str] = []
     for attempt in range(2):
+        provider_succeeded = False  # Invalid candidate schema is not a valid empty result.
         try:
-            items = extract_items(run_grok_fn(prompt))
+            items = validate_candidates(extract_items(run_grok_fn(prompt)))
             provider_succeeded = True
         except GrokTimeout as exc:
             log(f"topic={topic['key']} grok timed out: {exc}")

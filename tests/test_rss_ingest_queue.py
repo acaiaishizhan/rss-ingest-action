@@ -12,6 +12,10 @@ import html_watch
 from rss_ingest import collect_queue_items, split_sources_and_queue
 
 
+def increment_fixture():
+    return {'kind': 'mechanism', 'delta': '示例中新增的机制', 'detail': '测试夹具提供的具体机制内容', 'source_status': 'self_report', 'boundary': '模拟返回，不代表真实新闻'}
+
+
 def qa_items():
     return [
         {"question": "q1", "answer": "a1"},
@@ -69,25 +73,16 @@ def test_validate_summary_result_accepts_qa_schema_without_title():
     }
 
 
-def test_validate_summary_result_requires_at_least_three_qa_items():
-    try:
-        rss_ingest.validate_summary_result(
-            {
-                "qa": [
-                    {"question": "问题1", "answer": "回答1"},
-                    {"question": "问题2", "answer": "回答2"},
-                ],
-            }
-        )
-    except ValueError as exc:
-        assert "qa must contain at least 3 items" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
+def test_validate_summary_result_accepts_one_qa_item():
+    result = rss_ingest.validate_summary_result(
+        {"qa": [{"question": "问题1", "answer": "回答1"}]}
+    )
+    assert len(result["qa"]) == 1
 
 
 def test_validate_screen_result_requires_and_keeps_ingest_title():
     result = rss_ingest.validate_screen_result(
-        {
+        {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -102,7 +97,7 @@ def test_validate_screen_result_requires_and_keeps_ingest_title():
 
     try:
         rss_ingest.validate_screen_result(
-            {
+            {"increment": increment_fixture(),
                 "action": "ingest",
                 "categories": ["AI工具与自动化"],
                 "score": 8.0,
@@ -696,7 +691,7 @@ def test_analyze_with_llm_falls_back_to_ark_after_ollama_failures(monkeypatch):
                     "choices": [{
                         "message": {
                             "content": (
-                                '{"action":"ingest","categories":["AI工具与自动化"],'
+                                '{"action":"ingest","increment":{"kind":"mechanism","delta":"示例中新增的机制","detail":"测试夹具提供的具体机制内容","source_status":"self_report","boundary":"模拟返回，不代表真实新闻"},"categories":["AI工具与自动化"],'
                                 '"score":8.0,"reason":"保留","title_zh":"标题",'
                                 '"brief_summary":"OpenAI 发布新模型。",'
                                 '"keywords":[{"name":"OpenAI","type":"org"}],'
@@ -766,7 +761,7 @@ def test_ark_retries_empty_content_parse_failure(monkeypatch):
         calls.append(json)
         if len(calls) == 1:
             return DummyResponse("")
-        return DummyResponse('{"action":"pass","reason":"低价值","title_zh":"标题","summary":"摘要","keywords":[{"name":"OpenAI","type":"org"}]}')
+        return DummyResponse('{"action":"pass","increment":{"kind":"mechanism","delta":"示例中新增的机制","detail":"测试夹具提供的具体机制内容","source_status":"self_report","boundary":"模拟返回，不代表真实新闻"},"reason":"低价值","title_zh":"标题","summary":"摘要","keywords":[{"name":"OpenAI","type":"org"}]}')
 
     monkeypatch.setattr(rss_ingest.requests, "post", fake_post)
     monkeypatch.setattr(rss_ingest.time, "sleep", lambda *args, **kwargs: None)
@@ -799,7 +794,7 @@ def test_ark_round_robins_starting_key_and_fails_over(monkeypatch):
             return {
                 "choices": [{
                     "finish_reason": "stop",
-                    "message": {"content": '{"action":"pass","reason":"低价值"}'},
+                    "message": {"content": '{"action":"pass","increment":{"kind":"mechanism","delta":"示例中新增的机制","detail":"测试夹具提供的具体机制内容","source_status":"self_report","boundary":"模拟返回，不代表真实新闻"},"reason":"低价值"}'},
                 }]
             }
 
@@ -847,7 +842,7 @@ def test_ark_invalid_subscription_falls_through_to_the_other_key(monkeypatch):
             return {
                 "choices": [{
                     "finish_reason": "stop",
-                    "message": {"content": '{"action":"pass","reason":"ok"}'},
+                    "message": {"content": '{"action":"pass","increment":{"kind":"mechanism","delta":"示例中新增的机制","detail":"测试夹具提供的具体机制内容","source_status":"self_report","boundary":"模拟返回，不代表真实新闻"},"reason":"ok"}'},
                 }]
             }
 
@@ -958,7 +953,7 @@ def test_analyze_with_llm_uses_gemini_model_name_for_primary_gemini_provider(mon
                             "parts": [
                                 {
                                     "text": (
-                                        '{"action":"ingest","categories":["AI工具与自动化"],'
+                                        '{"action":"ingest","increment":{"kind":"mechanism","delta":"示例中新增的机制","detail":"测试夹具提供的具体机制内容","source_status":"self_report","boundary":"模拟返回，不代表真实新闻"},"categories":["AI工具与自动化"],'
                                         '"score":8.0,"reason":"保留","title_zh":"标题",'
                                         '"brief_summary":"OpenAI 发布新模型。",'
                                         '"keywords":[{"name":"OpenAI","type":"org"}],'
@@ -1012,7 +1007,7 @@ def test_analyze_with_llm_can_route_gemini_through_vertex(monkeypatch):
                             "parts": [
                                 {
                                     "text": (
-                                        '{"action":"ingest","categories":["AI工具与自动化"],'
+                                        '{"action":"ingest","increment":{"kind":"mechanism","delta":"示例中新增的机制","detail":"测试夹具提供的具体机制内容","source_status":"self_report","boundary":"模拟返回，不代表真实新闻"},"categories":["AI工具与自动化"],'
                                         '"score":8.0,"reason":"保留","title_zh":"标题",'
                                         '"brief_summary":"OpenAI 发布新模型。",'
                                         '"keywords":[{"name":"OpenAI","type":"org"}],'
@@ -1074,7 +1069,7 @@ def test_gemini_payload_uses_large_output_and_minimal_thinking(monkeypatch):
 def test_analyze_article_retries_screen_when_category_invalid(monkeypatch):
     calls = []
     responses = [
-        {
+        {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI产品"],
             "score": 8.0,
@@ -1083,7 +1078,7 @@ def test_analyze_article_retries_screen_when_category_invalid(monkeypatch):
             "title_zh": "标题",
             "brief_summary": "摘要",
         },
-        {
+        {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -1119,62 +1114,32 @@ def test_analyze_article_retries_screen_when_category_invalid(monkeypatch):
     assert calls[2] == "summary prompt"
 
 
-def test_analyze_article_staged_keep_is_locked_and_content_retries(monkeypatch):
+def test_analyze_article_staged_keep_can_pass_without_retry(monkeypatch):
     calls = []
     responses = [
-        {"verdict": "keep", "score": 6.2, "evidence": "工具新增批处理能力", "reason": "具名工具能力变化"},
-        {
-            "action": "pass",
-            "reason": "内容太薄",
-            "title_zh": "工具更新",
-            "summary": "工具新增批处理能力。",
-            "keywords": [{"name": "工具A", "type": "product"}],
-        },
-        {
-            "action": "ingest",
-            "categories": ["AI工具与自动化"],
-            "score": 4.5,
-            "reason": "初筛 keep 不可推翻",
-            "title_zh": "工具A新增批处理能力",
-            "summary": "工具A新增批处理能力。",
-            "keywords": [{"name": "工具A", "type": "product"}],
-            "qa": qa_items(),
-        },
+        {"verdict": "keep", "score": 6.2, "evidence": "提取、生成、人审、留痕", "reason": "范围相关"},
+        {"action": "pass", "reason": "无新增机制", "title_zh": "通用流程", "summary": "AI提取、生成、人审、留痕。",
+         "keywords": [], "increment": {"kind": "none", "delta": "无；通用流程", "detail": "提取、生成、人审、留痕",
+                                       "source_status": "self_report", "boundary": "不因缺硬证据否决"}},
     ]
-
     def fake_analyze(article, provider, system_prompt, model_name, **kwargs):
         calls.append(system_prompt)
         return responses.pop(0)
-
     monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
-    monkeypatch.setattr(rss_ingest.config, "SCREEN_VALIDATE_RETRIES", 3, raising=False)
-
     result = rss_ingest.analyze_article(
         {"title": "t", "content": "c", "link": "https://example.com", "source": "src"},
-        {
-            "keyword_blocklist": [],
-            "triage_prompt": "triage prompt",
-            "screen_prompt": "content prompt",
-            "summarize_prompt": "fallback prompt",
-        },
-        provider="deepseek",
-        include_summary=False,
+        {"keyword_blocklist": [], "triage_prompt": "triage prompt", "screen_prompt": "content prompt",
+         "summarize_prompt": "fallback prompt"}, provider="deepseek", include_summary=False,
     )
-
-    assert result["action"] == "ingest"
-    assert result["score"] == 4.5
-    assert result["_llm_meta"]["staged_screening"] is True
+    assert result["action"] == "pass"
     assert result["_llm_meta"]["triage_verdict"] == "keep"
-    assert result["_llm_meta"]["llm_request_count"] == 3
-    assert calls[0] == "triage prompt"
-    assert "initial_verdict: keep" in calls[1]
-    assert "triage keep cannot be overridden" in calls[2]
+    assert result["_llm_meta"]["llm_request_count"] == len(calls) == 2
 
 
 def test_analyze_article_staged_uncertain_can_pass(monkeypatch):
     responses = [
         {"verdict": "uncertain", "score": 4.0, "evidence": "只公布融资金额", "reason": "可能只是资本信号"},
-        {
+        {"increment": increment_fixture(),
             "action": "pass",
             "reason": "纯资本/治理/规模，未命中六类救回",
             "title_zh": "某AI公司完成融资",
@@ -1272,13 +1237,13 @@ def test_analyze_article_staged_low_triage_score_stops_before_content(monkeypatc
 def test_analyze_article_retries_pass_when_summary_missing(monkeypatch):
     calls = []
     responses = [
-        {
+        {"increment": increment_fixture(),
             "action": "pass",
             "reason": "命中规则2：通稿。",
             "title_zh": "某公司发布宣传稿",
             "keywords": [{"name": "某公司", "type": "org"}],
         },
-        {
+        {"increment": increment_fixture(),
             "action": "pass",
             "reason": "命中规则2：通稿。",
             "title_zh": "某公司发布宣传稿",
@@ -1310,7 +1275,7 @@ def test_analyze_article_retries_pass_when_summary_missing(monkeypatch):
 def test_analyze_article_retries_screen_when_keyword_type_invalid(monkeypatch):
     calls = []
     responses = [
-        {
+        {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -1319,7 +1284,7 @@ def test_analyze_article_retries_screen_when_keyword_type_invalid(monkeypatch):
             "title_zh": "标题",
             "brief_summary": "摘要",
         },
-        {
+        {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -1657,7 +1622,7 @@ def test_analyze_article_can_override_screen_provider_without_changing_summary(m
     def fake_analyze(article, provider, system_prompt, model_name, **kwargs):
         calls.append((provider, system_prompt, model_name))
         if system_prompt == "screen prompt":
-            return {
+            return {"increment": increment_fixture(),
                 "action": "ingest",
                 "reason": "保留",
                 "categories": ["AI工具与自动化"],
@@ -1780,7 +1745,7 @@ def test_run_llm_queue_skips_linux_do_filtered_table_and_keywords(monkeypatch):
     monkeypatch.setattr(
         rss_ingest,
         "analyze_with_llm",
-        lambda article, prompt_config=None: {
+        lambda article, prompt_config=None: {"increment": increment_fixture(),
             "action": "pass",
             "reason": "命中规则4：纯资源合集。",
             "summary": "课程资源目录。",
@@ -1946,7 +1911,7 @@ def test_run_llm_queue_dedups_before_summary(monkeypatch):
         lambda article, prompt_config=None, include_summary=None: analyze_include_summary.append(
             include_summary
         )
-        or {
+        or {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -2085,7 +2050,7 @@ def test_run_llm_queue_does_not_count_low_score_items_as_new(monkeypatch):
 @pytest.mark.parametrize("source", ["src", "LINUX DO"])
 def test_run_llm_queue_staged_content_score_gate(monkeypatch, score, source):
     created = []
-    analysis = {
+    analysis = {"increment": increment_fixture(),
         "action": "ingest",
         "categories": ["AI工具与自动化"],
         "score": score,
@@ -2153,7 +2118,7 @@ def test_run_llm_queue_retries_news_create_without_keyword_multiselect(monkeypat
     monkeypatch.setattr(
         rss_ingest,
         "analyze_with_llm",
-        lambda article, prompt_config=None: {
+        lambda article, prompt_config=None: {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -2220,7 +2185,7 @@ def test_run_llm_queue_adds_news_create_failure_to_failed_items(monkeypatch):
     monkeypatch.setattr(
         rss_ingest,
         "analyze_with_llm",
-        lambda article, prompt_config=None: {
+        lambda article, prompt_config=None: {"increment": increment_fixture(),
             "action": "ingest",
             "categories": ["AI工具与自动化"],
             "score": 8.0,
@@ -2279,7 +2244,7 @@ def test_run_llm_queue_adds_filtered_create_failure_to_failed_items(monkeypatch)
     monkeypatch.setattr(
         rss_ingest,
         "analyze_with_llm",
-        lambda article, prompt_config=None: {
+        lambda article, prompt_config=None: {"increment": increment_fixture(),
             "action": "pass",
             "reason": "命中过滤规则",
             "title_zh": "标题",

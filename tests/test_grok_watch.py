@@ -324,10 +324,10 @@ def test_hard_filter_drops_stale_and_missing_timestamp():
     assert gw.hard_filter({"category": "case"}, _tweet(created_ms=0), now, 48) == "no_timestamp"
 
 
-def test_hard_filter_drops_low_cred_deal_without_official_url():
+def test_hard_filter_does_not_veto_on_low_attention_alone():
     now = 100 * HOUR_MS
     shill = _tweet(followers=79, views=29)
-    assert gw.hard_filter({"category": "deal", "official_url": ""}, shill, now, 48) == "low_cred_deal"
+    assert gw.hard_filter({"category": "deal", "official_url": ""}, shill, now, 48) is None
     assert gw.hard_filter({"category": "deal", "official_url": "https://b.ai"}, shill, now, 48) is None
     assert gw.hard_filter({"category": "case"}, shill, now, 48) is None
     assert gw.hard_filter({"category": "deal", "official_url": ""}, _tweet(followers=79, views=600), now, 48) is None
@@ -413,8 +413,8 @@ def test_build_item_description_assembles_sections():
     }
     tweet = _tweet(author="RealGuy", likes=5, views=340, text="原帖全文", created_ms=1781234567000)
     desc = gw.build_item_description(item, tweet)
-    assert desc.startswith("原帖全文")
-    for fragment in ("[Grok摘要] 摘要内容", "[证据] 链上地址可查", "[红旗] 需绑卡", "[评分] 4/5", "source_chain: 内部人士爆料", "@RealGuy", "5赞", "发布 2026-"):
+    assert "[原帖正文] 原帖全文" in desc
+    for fragment in ("[Grok摘要] 摘要内容", "[Grok所述依据] 链上地址可查", "[红旗] 需绑卡", "[候选排序分，非可信度] 4/5", "source_chain: 内部人士爆料", "@RealGuy", "5赞", "发布 2026-"):
         assert fragment in desc
 
 
@@ -751,6 +751,7 @@ def test_prune_seen_drops_entries_older_than_14_days():
 
 
 def _grok_payload(items):
+    items = [{"increment": {'kind': 'mechanism', 'delta': '示例中新增的机制', 'detail': '测试夹具提供的具体机制内容', 'source_status': 'self_report', 'boundary': '模拟返回，不代表真实新闻'}, "signal_score": 3, **item} for item in items]
     return "```json\n" + json.dumps(items, ensure_ascii=False) + "\n```"
 
 
@@ -852,7 +853,8 @@ def test_process_topic_uses_original_prompt_file_even_if_query_templates_exist(t
 
     stats = gw.process_topic(topic, state, NOW_MS, run_grok, lambda s, h: None, tmp_path / "feeds")
 
-    assert prompts == ["original rich prompt"]
+    assert len(prompts) == 1 and prompts[0].startswith("original rich prompt\n\n")
+    assert "搜索候选的增量约束" in prompts[0]
     assert stats["returned"] == 1
 
 
