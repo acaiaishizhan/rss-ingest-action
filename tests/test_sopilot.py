@@ -107,6 +107,37 @@ def test_old_newly_ranked_posts_over_200_reach_existing_queue(monkeypatch):
     assert rss_ingest.compute_item_key_prefetch_since_ms([source], now * 1000) <= old * 1000
 
 
+def test_sopilot_drops_failed_items_that_left_the_complete_rolling_window(monkeypatch):
+    now = int(time.time())
+    source = {
+        "feed_url": sopilot.SOURCE_URL,
+        "enabled": True,
+        "record_id": "source",
+        "sopilot_batch": "test",
+        "failed_items": json.dumps([{
+            "item_key": "https://x.com/i/status/old",
+            "title": "old failed item",
+            "link": "https://x.com/a/status/old",
+            "published_ms": (now - 7 * 3600) * 1000,
+            "fail_count": 1,
+            "last_error": "subscription_error",
+            "last_seen_ms": (now - 7 * 3600) * 1000,
+            "miss_count": 0,
+        }]),
+    }
+    monkeypatch.setattr(
+        rss_ingest,
+        "fetch_feed",
+        lambda *a, **kw: SimpleNamespace(entries=[], sopilot={"discovered": 0, "prefiltered": 0}),
+    )
+
+    queue, states, stats = rss_ingest.split_sources_and_queue([source], set(), "unused")
+
+    assert queue == []
+    assert stats["sources_processed"] == 1
+    assert states["source"]["updated_failed_items"] == []
+
+
 def test_original_tweet_identity_survives_handle_and_domain_changes(monkeypatch):
     now = int(time.time())
     entry = {"id": "https://x.com/i/status/123", "link": "https://x.com/new_name/status/123",

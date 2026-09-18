@@ -4656,6 +4656,13 @@ def split_sources_and_queue(
                     continue
                 entry = entry_map.get(item_key)
                 if entry is None:
+                    if source_is_sopilot:
+                        # SoPilot is a complete rolling six-hour snapshot. Once a failed
+                        # item disappears from that snapshot its body cannot be fetched
+                        # through this source again; retaining it would poison every later
+                        # completion receipt without creating a retryable queue item.
+                        processed_keys.add(item_key)
+                        continue
                     item["miss_count"] = int(item.get("miss_count") or 0) + 1
                     item["last_seen_ms"] = now_ms
                     updated_failed_items.append(item)
