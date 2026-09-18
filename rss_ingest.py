@@ -23,8 +23,10 @@ import requests
 
 import aihot_filter
 import config
+from write_journal import held_write, reconcile_held_write, settle_held_writes, archive_retired, SourceWriteJournal
+from feishu_client import CREATE_JOURNAL
 from screening_value import finite_score, validate_increment
-from sopilot import is_retryable_partial_receipt, is_sopilot_source, tweet_id_from_key
+from sopilot import is_sopilot_source, tweet_id_from_key
 from http_safety import fetch_public_content
 from html_watch import (
     fetch_html_watch,
@@ -811,6 +813,9 @@ def build_plain_notice(error_type: str) -> str:
 
 
 def notify_root_cause(event: str, detail: str, error_type: str = "unknown") -> None:
+    if os.getenv("RSS_TASK_ALERTS_ONLY") == "true" or os.getenv("SOPILOT_BATCH_ID"):
+        log(f"[RootCause] {error_type}: {event}; notification belongs to the task outcome owner")
+        return
     if not try_mark_root_cause_recorded():
         return
 
@@ -2972,7 +2977,7 @@ def llm_dedup_check(
 
 
 def parse_failed_items(raw: Any) -> List[Dict[str, Any]]:
-    if not raw:
+    if raw is None or raw == "" or raw == []:
         return []
     data: Any = raw
     if isinstance(raw, str) or (
@@ -2984,19 +2989,19 @@ def parse_failed_items(raw: Any) -> List[Dict[str, Any]]:
             return []
         try:
             data = json.loads(s)
-        except Exception:
-            return []
+        except Exception as error:
+            raise ValueError("Corrupt failed_items JSON; preserve source state") from error
     if isinstance(data, dict):
         data = [data]
     if not isinstance(data, list):
-        return []
+        raise ValueError("Corrupt failed_items: expected a list")
     items: List[Dict[str, Any]] = []
     for item in data:
         if not isinstance(item, dict):
-            continue
+            raise ValueError("Corrupt failed_items entry")
         item_key = str(item.get("item_key") or "").strip()
         if not item_key:
-            continue
+            raise ValueError("Corrupt failed_items: missing item identity")
         items.append(
             {
                 "item_key": item_key,
@@ -3009,6 +3014,10 @@ def parse_failed_items(raw: Any) -> List[Dict[str, Any]]:
                 "miss_count": int(item.get("miss_count") or 0),
             }
         )
+        if "write" in item:
+            if not isinstance(item["write"], dict):
+                raise ValueError("Corrupt failed_items write evidence")
+            items[-1]["write"] = dict(item["write"])
     return items
 
 
@@ -3067,6 +3076,9 @@ def prune_failed_items(items: List[Dict[str, Any]], now_ms: int) -> List[Dict[st
     max_age_ms = config.FAILED_ITEMS_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
     pruned: List[Dict[str, Any]] = []
     for item in seen.values():
+        if held_write(item):
+            pruned.append(item)
+            continue
         miss_count = int(item.get("miss_count") or 0)
         if miss_count >= config.FAILED_ITEMS_MAX_MISS:
             continue
@@ -3076,7 +3088,9 @@ def prune_failed_items(items: List[Dict[str, Any]], now_ms: int) -> List[Dict[st
         pruned.append(item)
 
     pruned.sort(key=lambda x: int(x.get("last_seen_ms") or 0), reverse=True)
-    return pruned[: config.FAILED_ITEMS_MAX]
+    held = [item for item in pruned if held_write(item)]
+    ordinary = [item for item in pruned if not held_write(item)]
+    return held + ordinary[: config.FAILED_ITEMS_MAX]
 
 
 def cap_source_cursor_for_failed_items(
@@ -4636,7 +4650,13 @@ def split_sources_and_queue(
         if source_is_aihot:
             entries = [aihot_filter.entry_for_ingest(entry, source=source) for entry in entries]
 
-        failed_items = parse_failed_items(source.get("failed_items"))
+        try:
+            failed_items = parse_failed_items(source.get("failed_items"))
+        except (ValueError, TypeError) as error:
+            stats["sources_failed"] = stats.get("sources_failed", 0) + 1
+            stats["source_state_invalid"] = stats.get("source_state_invalid", 0) + 1
+            log(f"[RSS] corrupt source state retained: {error}")
+            continue
         entry_map: Dict[str, Dict[str, Any]] = {}
         for entry in entries:
             entry_key = build_item_key(entry, source.get("item_id_strategy"), source.get("content_hash_algo"))
@@ -4647,6 +4667,7 @@ def split_sources_and_queue(
         latest_key = str(source.get("last_item_guid") or "") if latest_pub_ms else ""
         processed_keys: set = set()
         updated_failed_items: List[Dict[str, Any]] = []
+        retired_failed_items: List[Dict[str, Any]] = []
 
         if failed_items:
             retry_budget = config.FAILED_ITEMS_RETRY_LIMIT
@@ -4654,6 +4675,23 @@ def split_sources_and_queue(
                 item_key = item.get("item_key") or ""
                 if not item_key:
                     continue
+                if held_write(item):
+                    try:
+                        witness = reconcile_held_write(item, tenant_token)
+                    except Exception as error:
+                        log(f"[Write] reconciliation read failed; intent retained: {error}")
+                        witness = None
+                    if witness:
+                        retired_failed_items.append({"reason": "reconciled_present", "item": item, "witness": witness})
+                        if witness["table_id"] != config.FEISHU_KEYWORD_TABLE_ID:
+                            processed_keys.add(item_key)
+                            continue
+                        item = {key: value for key, value in item.items() if key != "write"}
+                    else:
+                        updated_failed_items.append(item)
+                        stats["held_write_items"] = stats.get("held_write_items", 0) + 1
+                        processed_keys.add(item_key)
+                        continue
                 entry = entry_map.get(item_key)
                 if entry is None:
                     if source_is_sopilot:
@@ -4661,6 +4699,7 @@ def split_sources_and_queue(
                         # item disappears from that snapshot its body cannot be fetched
                         # through this source again; retaining it would poison every later
                         # completion receipt without creating a retryable queue item.
+                        retired_failed_items.append({"reason": "outside_current_selected_snapshot", "item": item})
                         processed_keys.add(item_key)
                         continue
                     item["miss_count"] = int(item.get("miss_count") or 0) + 1
@@ -4789,6 +4828,8 @@ def split_sources_and_queue(
             "latest_pub_ms": latest_pub_ms,
             "latest_key": latest_key,
             "updated_failed_items": updated_failed_items,
+            "retired_failed_items": retired_failed_items,
+            "source_snapshot_sha256": hashlib.sha256(json.dumps(entries, sort_keys=True, default=str).encode()).hexdigest(),
             "new_count": 0,
             "watch_state": result.get("watch_state"),
         }
@@ -4808,6 +4849,7 @@ def run_llm_queue(
     secondary_pending_items: Optional[List[Dict[str, Any]]] = None,
     keyword_index: Optional[Dict[str, KeywordRecord]] = None,
     written_records: Optional[List[Dict[str, str]]] = None,
+    durable_writes: bool = False,
 ) -> None:
     total = len(queue)
     if total <= 0:
@@ -4823,7 +4865,10 @@ def run_llm_queue(
     stats.setdefault("entries_low_score", 0)
     stats.setdefault("entries_written", 0)
     stats.setdefault("text_dedup_skipped", 0)
-    lock = threading.Lock()
+    stats.setdefault("worker_exception", 0)
+    stats.setdefault("uncertain_writes", 0)
+    lock = threading.RLock()
+    source_locks = {source_id: threading.RLock() for source_id in source_states}
     keyword_lock = threading.Lock()
     dedup_store = load_dedup_store(tenant_token) if ENABLE_TEXT_DEDUP else DedupCandidateStore()
     keyword_index = keyword_index if keyword_index is not None else {}
@@ -5119,6 +5164,10 @@ def run_llm_queue(
             except Exception as exc:
                 with lock:
                     stats["llm_failed"] += 1
+                    stats["worker_exception"] += 1
+                    journal = item.get("_journal")
+                    if journal is None or (journal.current or {}).get("phase") in {"intent", "unknown"}:
+                        stats["uncertain_writes"] += 1
                     state = source_states[item["source_id"]]
                     article = item["article"]
                     upsert_failed_item(
@@ -5143,8 +5192,21 @@ def run_llm_queue(
             sys.stdout.write("\n")
             sys.stdout.flush()
 
+    def execute_item(item):
+        if not durable_writes:
+            return handle_item(item)
+        journal = SourceWriteJournal(source_states[item["source_id"]], item, tenant_token,
+                                     source_locks[item["source_id"]], lock)
+        item["_journal"] = journal
+        token = CREATE_JOURNAL.set(journal)
+        try:
+            handle_item(item)
+            journal.finish()
+        finally:
+            CREATE_JOURNAL.reset(token)
+
     with ThreadPoolExecutor(max_workers=config.LLM_CONCURRENCY) as executor:
-        future_items = {executor.submit(handle_item, item): item for item in queue}
+        future_items = {executor.submit(execute_item, item): item for item in queue}
         consume_futures(future_items)
 
 def _main(sopilot_receipt=None) -> int:
@@ -5206,7 +5268,11 @@ def _main(sopilot_receipt=None) -> int:
     )
 
     sources = [normalize_source(r) for r in records if r.get("record_id")]
+    from source_runtime import grok_source_ids
+    snapshot_unavailable = 0
     try:
+        grok_ids = grok_source_ids(sources, getattr(config, "RSS_SOURCE_OVERRIDE_FILE", ""))
+        expected_grok_sources = sum(bool(source.get("enabled")) and source["record_id"] in grok_ids for source in sources)
         runtime_selection = prepare_sources_for_runtime(
             sources,
             mode=getattr(config, "RSS_SOURCE_MODE", "all"),
@@ -5238,6 +5304,12 @@ def _main(sopilot_receipt=None) -> int:
     else:
         # The Info hourly task owns SoPilot cadence; ordinary RSS runs keep their scope.
         enabled_sources = [s for s in enabled_sources if not is_sopilot_source(s.get("feed_url"))]
+        from source_runtime import select_ingest_lane
+        enabled_sources = select_ingest_lane(enabled_sources, os.getenv("RSS_INGEST_LANE", "rss"), grok_ids)
+        if os.getenv("RSS_INGEST_LANE") == "grok":
+            if not expected_grok_sources:
+                raise ValueError("No enabled Grok source is configured; refusing a false empty result")
+            snapshot_unavailable = expected_grok_sources - len(enabled_sources)
     log(f"[RSS] sources total={len(sources)} enabled={len(enabled_sources)}")
     try:
         existing_keys = prefetch_recent_item_keys_with_retries(tenant_token, enabled_sources)
@@ -5266,7 +5338,7 @@ def _main(sopilot_receipt=None) -> int:
             log(f"[Sync] secondary prefetched keys: {len(secondary_record_map)}")
         except Exception as exc:
             log(f"[Sync] secondary prefetch failed: {exc}")
-            secondary_record_map = {}
+            return 1
 
     queue, source_states, fetch_stats = split_sources_and_queue(enabled_sources, existing_keys, tenant_token, all_sources=sources)
     stats = {
@@ -5286,15 +5358,23 @@ def _main(sopilot_receipt=None) -> int:
         "secondary_sync_ok": 0,
         "secondary_sync_failed": 0,
         "source_state_update_failed": 0,
+        "worker_exception": 0,
+        "uncertain_writes": 0,
+        "held_write_items": 0,
+        "source_state_invalid": 0,
+        "snapshot_unavailable": snapshot_unavailable,
     }
     stats.update(fetch_stats)
     if sopilot_receipt is not None:
         sopilot_receipt["stats"] = stats
         sopilot_receipt["queued_urls"] = [item["article"]["link"] for item in queue]
         sopilot_receipt["news_records"] = []
+        sopilot_receipt["source_snapshot_sha256"] = next(iter(source_states.values()), {}).get("source_snapshot_sha256", "")
     log(f"[Queue] total={stats['queue_total']} sources_processed={stats['sources_processed']} sources_skipped={stats['sources_skipped']}")
 
     secondary_pending_items: Optional[List[Dict[str, Any]]] = [] if secondary_sync_enabled else None
+    for state in source_states.values():
+        archive_retired(state)  # Before a write intent can replace the source's failed_items.
     run_llm_queue(
         queue,
         source_states,
@@ -5305,6 +5385,7 @@ def _main(sopilot_receipt=None) -> int:
         secondary_pending_items=secondary_pending_items,
         keyword_index=keyword_index,
         **({"written_records": sopilot_receipt["news_records"]} if sopilot_receipt is not None else {}),
+        **({"durable_writes": True} if os.getenv("RSS_DURABLE_WRITES") == "true" else {}),
     )
 
     if secondary_sync_enabled and secondary_pending_items is not None:
@@ -5317,9 +5398,20 @@ def _main(sopilot_receipt=None) -> int:
             secondary_app_token=secondary_app,
         )
 
+    if os.getenv("RSS_DURABLE_WRITES") == "true":
+        for state in source_states.values():
+            settle_held_writes(state, tenant_token)
+        stats["uncertain_write_events"] = stats.get("uncertain_writes", 0)
+        stats["uncertain_writes"] = sum(held_write(item) for state in source_states.values() for item in state["updated_failed_items"])
+        stats["held_write_items"] = stats["uncertain_writes"]
     for state in source_states.values():
         source = state["source"]
         pruned_failed_items = prune_failed_items(state["updated_failed_items"], state["now_ms"])
+        kept = {item["item_key"] for item in pruned_failed_items}
+        state.setdefault("retired_failed_items", []).extend(
+            {"reason": "active_retry_retention", "item": item} for item in state["updated_failed_items"]
+            if item["item_key"] not in kept)
+        archive_retired(state)
         latest_pub_ms, latest_key = cap_source_cursor_for_failed_items(
             state["latest_pub_ms"],
             state["latest_key"],
@@ -5366,6 +5458,9 @@ def _main(sopilot_receipt=None) -> int:
             len(prune_failed_items(state["updated_failed_items"], state["now_ms"]))
             for state in source_states.values()
         )
+        sopilot_receipt["retired_failed_items"] = [
+            {"source_id": source_id, **item} for source_id, state in source_states.items()
+            for item in state.get("retired_failed_items", [])]
     log(
         "[Summary] "
         f"sources_done={stats['sources_processed']} "
@@ -5407,12 +5502,13 @@ def _main(sopilot_receipt=None) -> int:
         "filtered_log_failed",
         "secondary_sync_failed",
         "source_state_update_failed",
+        "worker_exception", "uncertain_writes", "held_write_items", "source_state_invalid", "snapshot_unavailable",
     )
     has_processing_failure = any(int(stats.get(field, 0) or 0) > 0 for field in failure_fields)
     all_queued_llm_items_failed = (
         int(stats.get("queue_total", 0) or 0) > 0
         and int(stats.get("llm_failed", 0) or 0) >= int(stats.get("queue_total", 0) or 0)
-        and int(stats.get("llm_success", 0) or 0) == 0
+        and int(stats.get("entries_written", 0) or 0) == 0
         and int(stats.get("llm_filtered", 0) or 0) == 0
     )
     if all_queued_llm_items_failed:
@@ -5426,7 +5522,11 @@ def main() -> int:
         return _main()
     if str(uuid.UUID(batch_id)) != batch_id:
         raise ValueError("Invalid SoPilot batch ID")
-    receipt = {"batch_id": batch_id, "started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "complete": False}
+    receipt = {"schema_version": 2, "batch_id": batch_id,
+               "write_protocol": "source-intent-v1" if os.getenv("RSS_DURABLE_WRITES") == "true" else "unguarded",
+               "run_id": os.getenv("GITHUB_RUN_ID", ""), "run_attempt": int(os.getenv("GITHUB_RUN_ATTEMPT", "1")),
+               "head_sha": os.getenv("GITHUB_SHA", ""), "workflow": os.getenv("GITHUB_WORKFLOW", ""),
+               "started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "complete": False}
     code = 1
     try:
         code = _main(receipt)
@@ -5445,7 +5545,12 @@ def main() -> int:
         receipt["finished_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
         target = config.BASE_DIR / "out" / "sopilot" / f"{batch_id}.json"
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
+        staging = target.with_suffix(f".tmp-{uuid.uuid4()}")
+        with staging.open("x", encoding="utf-8") as handle:
+            json.dump(receipt, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(staging, target)
 
 
 def source_failures_are_fatal(stats: Dict[str, int]) -> bool:
@@ -5501,28 +5606,28 @@ def cli_entrypoint(run_log_path: Optional[str] = None) -> int:
 
                 batch_id = os.getenv("SOPILOT_BATCH_ID", "").strip()
                 recovery_attempt = int(os.getenv("SOPILOT_RECOVERY_ATTEMPT", "0") or 0)
-                defer_alert = False
-                if batch_id and recovery_attempt < 3:
-                    try:
-                        receipt_path = config.BASE_DIR / "out" / "sopilot" / f"{batch_id}.json"
-                        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-                        defer_alert = is_retryable_partial_receipt(receipt, batch_id)
-                    except (OSError, ValueError, TypeError):
-                        defer_alert = False
-                if defer_alert:
+                if batch_id:
                     log(
-                        "[task-alerts] silent recoverable SoPilot partial failure "
-                        f"batch={batch_id} attempt={recovery_attempt}; orchestrator will retry"
+                        "[task-alerts] SoPilot alert owned by local orchestrator "
+                        f"batch={batch_id} attempt={recovery_attempt}; receipt retained"
                     )
                 else:
                     alert_kwargs = {"log_path": str(resolved_log_path)} if resolved_log_path else {}
-                    task_alerts.notify_failure(
-                        "sopilot-info" if batch_id else "rss-ingest-fetch",
+                    if os.getenv("RSS_ALERT_OWNER") == "local":
+                        alert_kwargs["webhook_url"] = ""
+                    task_alerts.record_outcome(
+                        "grok-ingest" if os.getenv("RSS_INGEST_LANE") == "grok" else "rss-ingest-fetch",
                         code,
                         **alert_kwargs,
                     )
             except Exception as exc:
                 log(f"[RSS] failure alert error (ignored): {exc}")
+        elif not os.getenv("SOPILOT_BATCH_ID", "").strip():
+            try:
+                import task_alerts
+                task_alerts.record_outcome("grok-ingest" if os.getenv("RSS_INGEST_LANE") == "grok" else "rss-ingest-fetch", 0)
+            except Exception as exc:
+                log(f"[RSS] health state error (ignored): {exc}")
         sys.stdout = original_stdout
         sys.stderr = original_stderr
         if run_log_file is not None:

@@ -38,6 +38,8 @@ data/aliases/*.json
 data/grok-feeds/
 data/grok_watch_state.json
 data/.grok_watch.lock
+data/.grok_watch.lock.kernel
+data/grok-requests/
 data/conhost-flash-watch*.jsonl
 data/conhost-flash-watch.pid
 data/visible-console-flash-watch.jsonl

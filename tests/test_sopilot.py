@@ -166,10 +166,12 @@ def test_completion_receipt_never_calls_partial_processing_complete(monkeypatch,
 
 
 def test_only_safe_partial_failures_are_retryable():
+    zero_writes = dict(filtered_log_failed=0, feishu_create_failed=0, secondary_sync_failed=0,
+                       source_state_update_failed=0, worker_exception=0, uncertain_writes=0, held_write_items=0, source_state_invalid=0, snapshot_unavailable=0)
     partial = {
         "batch_id": "batch", "complete": False, "remaining_failed_items": 1,
         "news_records": [{"record_id": "recABC"}],
-        "stats": {"sources_processed": 1, "queue_total": 56, "llm_failed": 1},
+        "stats": {**zero_writes, "sources_processed": 1, "sources_failed": 0, "queue_total": 56, "llm_failed": 1},
     }
     assert sopilot.is_retryable_partial_receipt(partial, "batch")
     assert not sopilot.is_retryable_partial_receipt(
@@ -181,10 +183,16 @@ def test_only_safe_partial_failures_are_retryable():
     source_502 = {
         "batch_id": "batch", "complete": False, "remaining_failed_items": 0,
         "news_records": [],
-        "stats": {"sources_processed": 0, "sources_failed": 1, "queue_total": 0,
+        "stats": {**zero_writes, "sources_processed": 0, "sources_failed": 1, "queue_total": 0,
                   "llm_failed": 0, "feishu_create_failed": 0},
     }
     assert sopilot.is_retryable_partial_receipt(source_502, "batch")
     assert not sopilot.is_retryable_partial_receipt(
         {**source_502, "stats": {**source_502["stats"], "feishu_create_failed": 1}}, "batch"
+    )
+    assert not sopilot.is_retryable_partial_receipt(
+        {**partial, "stats": {**partial["stats"], "uncertain_writes": 1}}, "batch"
+    )
+    assert not sopilot.is_retryable_partial_receipt(
+        {**partial, "stats": {**partial["stats"], "worker_exception": None}}, "batch"
     )

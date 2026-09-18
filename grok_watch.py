@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 import unicodedata
+import uuid
 from email.utils import formatdate
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -132,6 +133,15 @@ TOPIC_REQUIRED_FIELDS = ("key", "name", "interval_hours", "window_hours", "promp
 
 
 class GrokTimeout(RuntimeError):
+    pass
+
+class GrokPending(RuntimeError):
+    pass
+
+class GrokNotSubmitted(RuntimeError):
+    pass
+
+class GrokInvalidOutput(RuntimeError):
     pass
 
 
@@ -321,10 +331,10 @@ def load_topics(path: Path) -> List[Dict[str, Any]]:
 def load_state(path: Path) -> Dict[str, Any]:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return default_state()
     if not isinstance(data, dict):
-        return default_state()
+        raise ValueError("Grok state corrupt: expected an object; preserve original state")
     base = default_state()
     for key in base:
         if isinstance(data.get(key), dict):
@@ -336,7 +346,10 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(state, handle, ensure_ascii=False, indent=1)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(tmp, path)
 
 
@@ -347,7 +360,7 @@ def topic_due(topic: Dict[str, Any], state: Dict[str, Any], now_ms: int) -> bool
     scheduled = topic_due_by_schedule_hour(topic, state, now_ms)
     if scheduled is not None:
         return scheduled
-    last = int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0)
+    last = max(int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0), int((state.get("topics", {}).get(topic["key"]) or {}).get("last_attempt_ms") or 0))
     return now_ms >= topic_next_due_ms(topic, state)
 
 
@@ -375,7 +388,7 @@ def topic_due_by_schedule_times(topic: Dict[str, Any], state: Dict[str, Any], no
         return None
     if not isinstance(raw_times, list):
         return None
-    last = int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0)
+    last = max(int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0), int((state.get("topics", {}).get(topic["key"]) or {}).get("last_attempt_ms") or 0))
     grace_ms = max(1, SCHEDULE_GRACE_MINUTES) * 60 * 1000
     for raw in raw_times:
         parsed = _parse_schedule_time(raw)
@@ -404,12 +417,12 @@ def topic_due_by_schedule_hour(topic: Dict[str, Any], state: Dict[str, Any], now
         return False
     slot_start = current.replace(minute=0, second=0, microsecond=0)
     slot_start_ms = int(slot_start.timestamp() * 1000)
-    last = int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0)
+    last = max(int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0), int((state.get("topics", {}).get(topic["key"]) or {}).get("last_attempt_ms") or 0))
     return last < slot_start_ms
 
 
 def topic_next_due_ms(topic: Dict[str, Any], state: Dict[str, Any]) -> int:
-    last = int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0)
+    last = max(int((state.get("topics", {}).get(topic["key"]) or {}).get("last_run_ms") or 0), int((state.get("topics", {}).get(topic["key"]) or {}).get("last_attempt_ms") or 0))
     return last + int(topic["interval_hours"]) * 3600 * 1000
 
 
@@ -951,34 +964,7 @@ def ensure_grok_web_endpoint() -> None:
     if healthy:
         return
 
-    launcher = Path(GROK_GPT_BROWSER_COMMAND).expanduser()
-    launcher_path = str(launcher) if launcher.exists() else shutil.which(GROK_GPT_BROWSER_COMMAND)
-    if not launcher_path:
-        raise RuntimeError(
-            f"Grok web endpoint unavailable ({detail}); "
-            f"gpt-browser launcher not found: {GROK_GPT_BROWSER_COMMAND}"
-        )
-    log(f"gpt-browser endpoint unavailable ({detail}); launching Chrome")
-    try:
-        completed = subprocess.run(
-            [launcher_path, "launch"],
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=max(10, GROK_GPT_BROWSER_LAUNCH_TIMEOUT_S),
-            check=False,
-            creationflags=_win_flag("CREATE_NO_WINDOW"),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError(f"gpt-browser launch failed: {exc}") from exc
-    if completed.returncode != 0:
-        error = (completed.stderr or completed.stdout or "").strip()[-500:]
-        raise RuntimeError(f"gpt-browser launch exited {completed.returncode}: {error}")
-
-    healthy, detail = _grok_web_endpoint_status(endpoint_file)
-    if not healthy:
-        raise RuntimeError(f"gpt-browser launch completed but endpoint is still unavailable: {detail}")
-    log("gpt-browser endpoint recovered")
+    raise RuntimeError(f"Grok web endpoint unavailable ({detail}); unattended browser restart is forbidden")
 
 
 def validate_grok_web_config() -> None:
@@ -994,8 +980,24 @@ def validate_grok_web_config() -> None:
         raise RuntimeError(f"Grok web command not found: {GROK_WEB_COMMAND}")
 
 
-def run_grok_web(prompt_text: str, timeout_s: int = 0) -> str:
-    validate_grok_web_config()
+def run_grok_web(prompt_text: str, timeout_s: int = 0, receipt_file: str = "") -> str:
+    retained = None
+    if receipt_file and Path(receipt_file).exists():
+        retained = json.loads(Path(receipt_file).read_text(encoding="utf-8"))
+        if retained.get("submission") == "completed":
+            payload = retained["payload"]
+            if "json" in payload:
+                structured = payload["json"]
+                if not (isinstance(structured, list) or isinstance(structured, dict) and isinstance(structured.get("items"), list)):
+                    raise GrokInvalidOutput("Completed Grok output does not satisfy the candidate schema")
+                return json.dumps(structured, ensure_ascii=False)
+            return str(payload.get("text") or "")
+    try:
+        validate_grok_web_config()
+    except (RuntimeError, OSError) as error:
+        if retained and retained.get("submission") != "not_submitted":
+            raise RuntimeError("Grok submission unknown; original browser is unavailable") from error
+        raise GrokNotSubmitted(str(error)) from error
     timeout_s = timeout_s or GROK_WEB_TIMEOUT_S
     fd, prompt_path = tempfile.mkstemp(prefix="grok-web-watch-", suffix=".md")
     try:
@@ -1010,6 +1012,8 @@ def run_grok_web(prompt_text: str, timeout_s: int = 0) -> str:
         env["GROK_BROWSER_MODEL"] = GROK_WEB_MODEL
         env["GROK_BROWSER_URL"] = GROK_WEB_URL
         env["GROK_BROWSER_TIMEOUT_S"] = str(max(1, int(timeout_s)))
+        request_key = hashlib.sha256((str(int(time.time() // 3600)) + prompt_text).encode("utf-8")).hexdigest()
+        env["GROK_BROWSER_RECEIPT_FILE"] = receipt_file or str(PROJECT_ROOT / "data" / "grok-requests" / (request_key + ".json"))
         if GROK_WEB_KEEP_PAGE:
             env["GROK_BROWSER_KEEP_PAGE"] = GROK_WEB_KEEP_PAGE
         args = [
@@ -1044,12 +1048,12 @@ def run_grok_web(prompt_text: str, timeout_s: int = 0) -> str:
             encoding="utf-8",
             errors="replace",
             env=env,
-            timeout=max(10, int(timeout_s) + 30),
+            timeout=max(900, int(timeout_s) + 900),
             check=False,
             creationflags=_win_flag("CREATE_NO_WINDOW"),
         )
     except subprocess.TimeoutExpired as exc:
-        raise GrokTimeout(f"grok web timeout after {timeout_s}s") from exc
+        raise GrokTimeout(f"grok submission unknown after web timeout {timeout_s}s; inspect original receipt") from exc
     finally:
         try:
             os.unlink(prompt_path)
@@ -1150,12 +1154,12 @@ def run_grok_cli(prompt_text: str, command: str = "", timeout_s: int = 0) -> str
     return stdout
 
 
-def run_grok(prompt_text: str, command: str = "", timeout_s: int = 0) -> str:
+def run_grok(prompt_text: str, command: str = "", timeout_s: int = 0, receipt_file: str = "") -> str:
     transport = _grok_watch_transport()
     if transport == "api":
         return run_grok_api(prompt_text, timeout_s=timeout_s)
     if transport == "web":
-        return run_grok_web(prompt_text, timeout_s=timeout_s)
+        return run_grok_web(prompt_text, timeout_s=timeout_s, receipt_file=receipt_file)
     if transport == "cli":
         return run_grok_cli(prompt_text, command=command, timeout_s=timeout_s)
     if transport in {"off", "disabled", "none"}:
@@ -1190,16 +1194,24 @@ def process_topic(
     lookup_fn: Callable[[str, str], Optional[Dict[str, Any]]],
     feed_dir: Path,
     reddit_lookup_fn: Callable[[str], Optional[Dict[str, Any]]] = reddit_lookup,
+    provider_receipt_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     items: List[Dict[str, Any]] = []
     prompt = _read_prompt(topic)
+    if provider_receipt_path and provider_receipt_path.exists():
+        retained = json.loads(provider_receipt_path.read_text(encoding="utf-8"))
+        prompt = retained.get("prompt") or prompt
     provider_succeeded = False
     provider_errors: List[str] = []
-    for attempt in range(2):
+    for attempt in range(1):
         provider_succeeded = False  # Invalid candidate schema is not a valid empty result.
         try:
-            items = validate_candidates(extract_items(run_grok_fn(prompt)))
+            response = run_grok_fn(prompt)
+            if not str(response).strip(): raise GrokInvalidOutput("Empty provider output is not a valid empty result")
+            items = validate_candidates(extract_items(response))
             provider_succeeded = True
+        except (GrokPending, GrokNotSubmitted, GrokInvalidOutput):
+            raise
         except GrokTimeout as exc:
             log(f"topic={topic['key']} grok timed out: {exc}")
             provider_errors.append(str(exc))
@@ -1209,7 +1221,7 @@ def process_topic(
             log(f"topic={topic['key']} grok failed: {exc}")
             provider_errors.append(str(exc))
             items = []
-        if items:
+        if provider_succeeded:
             break
         if attempt == 0:
             log(f"topic={topic['key']} no items parsed (may just be no new posts; real failures log 'grok failed' above); retry once")
@@ -1329,28 +1341,62 @@ def main(argv: Optional[List[str]] = None) -> int:
         max_topics=args.max_topics_per_run,
     )
     log(f"topics total={len(topics)} due={[t['key'] for t in due]}")
-    if due:
-        try:
-            validate_grok_transport()
-        except RuntimeError as exc:
-            log(str(exc))
-            return 2
     failed_topics = 0
+    pending_topics = 0
     for topic in due:
+        receipt_path = None
         try:
-            process_topic(topic, state, now_ms, run_grok, fxtwitter_lookup, Path(args.feed_dir))
-        except Exception as exc:
-            log(f"topic={topic['key']} failed: {exc}")
+            current = state["topics"].setdefault(topic["key"], {})
+            previous = current.get("provider_receipt")
+            if previous:
+                receipt_path = Path(previous)
+                if not receipt_path.exists():
+                    raise RuntimeError("Grok submission unknown: retained provider receipt is missing")
+            else:
+                legacy = Path(args.feed_dir).parent/"grok-requests"/(topic["key"]+".json")
+                saved = json.loads(legacy.read_text(encoding="utf-8")) if legacy.exists() else None
+                if saved and saved.get("requestId") != current.get("completed_request_id"):
+                    receipt_path = legacy
+                else:
+                    validate_grok_transport()
+                    receipt_path = Path(args.feed_dir).parent/"grok-requests"/(topic["key"]+"-"+str(uuid.uuid4())+".json")
+                current["provider_receipt"] = str(receipt_path)
+                save_state(state_path, state)
+            process_topic(topic, state, now_ms, lambda prompt: run_grok(prompt, receipt_file=str(receipt_path)),
+                          fxtwitter_lookup, Path(args.feed_dir), provider_receipt_path=receipt_path)
+            completed = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if completed.get("submission") != "completed":
+                raise RuntimeError("Grok submission unknown: no completed provider receipt")
+            current = state["topics"].setdefault(topic["key"], {})
+            current["completed_request_id"] = completed["requestId"]
+            current["completed_receipt"] = str(receipt_path)
+            current.pop("provider_receipt", None)
+            save_state(state_path, state)
+        except GrokPending as error:
+            pending_topics += 1
+            log(f"topic={topic['key']} pending: {error}")
+        except Exception as error:
+            current = state["topics"].setdefault(topic["key"], {})
+            try:
+                saved = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path and receipt_path.exists() else {}
+            except (ValueError, OSError):
+                saved = {}
+            if isinstance(error, GrokNotSubmitted) and not saved:
+                current.pop("provider_receipt", None)
+            if isinstance(error, GrokInvalidOutput) or saved.get("terminalFailure"):
+                current.setdefault("failed_provider_receipts", []).append(str(receipt_path))
+                current["last_attempt_ms"] = now_ms
+                current.pop("provider_receipt", None)
+            log(f"topic={topic['key']} failed: {error}")
             failed_topics += 1
-            continue
-        save_state(state_path, state)
+            save_state(state_path, state)
     prune_seen(state, now_ms)
     save_state(state_path, state)
-    return 1 if failed_topics else 0
+    return 1 if failed_topics else (75 if pending_topics else 0)
 
 
 if __name__ == "__main__":
-    from rss_ingest import SingleInstanceLock  # 复用主流程的锁（带 stale 检测）
+    from producer_lock import SingleInstanceLock
 
     _lock = SingleInstanceLock(DEFAULT_LOCK_PATH)
     if not _lock.acquire():

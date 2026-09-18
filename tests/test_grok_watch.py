@@ -35,13 +35,15 @@ def test_load_topics_skips_disabled_and_requires_fields(tmp_path):
     assert [t["key"] for t in topics] == ["deals"]
 
 
-def test_load_state_returns_default_on_missing_or_corrupt(tmp_path):
+def test_load_state_defaults_only_when_missing_and_preserves_corruption(tmp_path):
     missing = gw.load_state(tmp_path / "nope.json")
     assert missing == {"topics": {}, "seen_posts": {}, "seen_text": {}}
 
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
-    assert gw.load_state(bad) == {"topics": {}, "seen_posts": {}, "seen_text": {}}
+    with pytest.raises(ValueError):
+        gw.load_state(bad)
+    assert bad.read_text(encoding="utf-8") == "{not json"
 
 
 def test_save_state_roundtrip(tmp_path):
@@ -480,7 +482,7 @@ def test_run_grok_api_requires_api_key(monkeypatch):
 def test_run_grok_defaults_to_web_transport(monkeypatch):
     monkeypatch.delenv("GROK_WATCH_TRANSPORT", raising=False)
     monkeypatch.setattr(gw, "run_grok_api", lambda prompt, timeout_s=0: "api")
-    monkeypatch.setattr(gw, "run_grok_web", lambda prompt, timeout_s=0: "web")
+    monkeypatch.setattr(gw, "run_grok_web", lambda prompt, timeout_s=0, **kwargs: "web")
     monkeypatch.setattr(gw, "run_grok_cli", lambda *a, **k: "cli")
 
     assert gw.run_grok("p") == "web"
@@ -496,14 +498,14 @@ def test_run_grok_api_transport_is_explicit(monkeypatch):
 
 def test_run_grok_web_transport_is_explicit(monkeypatch):
     monkeypatch.setenv("GROK_WATCH_TRANSPORT", "web")
-    monkeypatch.setattr(gw, "run_grok_web", lambda prompt, timeout_s=0: "web")
+    monkeypatch.setattr(gw, "run_grok_web", lambda prompt, timeout_s=0, **kwargs: "web")
     monkeypatch.setattr(gw, "run_grok_cli", lambda *a, **k: "cli")
 
     assert gw.run_grok("p") == "web"
 
 
 @pytest.mark.parametrize("broken_endpoint", ["stale", "invalid"])
-def test_validate_grok_transport_relaunches_stale_gpt_browser_endpoint(tmp_path, monkeypatch, broken_endpoint):
+def test_validate_grok_transport_never_relaunches_stale_gpt_browser_endpoint(tmp_path, monkeypatch, broken_endpoint):
     stale_socket = socket.socket()
     stale_socket.bind(("127.0.0.1", 0))
     stale_port = stale_socket.getsockname()[1]
@@ -550,12 +552,12 @@ def test_validate_grok_transport_relaunches_stale_gpt_browser_endpoint(tmp_path,
     monkeypatch.setattr(gw.subprocess, "run", fake_run)
 
     try:
-        gw.validate_grok_transport()
+        with pytest.raises(RuntimeError, match="unattended browser restart is forbidden"):
+            gw.validate_grok_transport()
     finally:
         live_socket.close()
 
-    assert captured["args"] == [sys.executable, "launch"]
-    assert captured["kwargs"]["timeout"] == 30
+    assert captured == {}
 
 
 def test_run_grok_web_invokes_grok_browser_and_extracts_text(tmp_path, monkeypatch):
@@ -614,7 +616,7 @@ def test_run_grok_web_invokes_grok_browser_and_extracts_text(tmp_path, monkeypat
     env = captured["kwargs"]["env"]
     assert env["GROK_BROWSER_ENDPOINT_FILE"] == str(endpoint)
     assert str(node_modules) in env["NODE_PATH"]
-    assert captured["kwargs"]["timeout"] == 39
+    assert captured["kwargs"]["timeout"] >= 909
 
 
 def test_run_grok_cli_builds_guarded_command_and_parses_json(monkeypatch):
@@ -734,8 +736,8 @@ def test_main_fails_fast_when_explicit_api_key_missing(tmp_path, monkeypatch):
         "--force",
     ])
 
-    assert code == 2
-    assert not state_path.exists()
+    assert code == 1
+    assert not gw.load_state(state_path)["topics"]["deals"].get("provider_receipt")
 
 
 def test_prune_seen_drops_entries_older_than_14_days():
@@ -875,7 +877,7 @@ def test_process_topic_dedups_same_text_across_posts(tmp_path):
     assert stats["accepted"] == 1 and stats["dropped"]["dup_text"] == 1
 
 
-def test_process_topic_retries_once_on_empty_output(tmp_path):
+def test_process_topic_valid_empty_result_is_not_resubmitted(tmp_path):
     topic = _topic(prompt_file=str(tmp_path / "p.md"))
     (tmp_path / "p.md").write_text("prompt", encoding="utf-8")
     state = gw.default_state()
@@ -883,10 +885,10 @@ def test_process_topic_retries_once_on_empty_output(tmp_path):
 
     def flaky(prompt):
         calls.append(1)
-        return "" if len(calls) == 1 else _grok_payload([])
+        return _grok_payload([])
 
     stats = gw.process_topic(topic, state, NOW_MS, flaky, lambda s, h: None, tmp_path / "feeds")
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert stats["returned"] == 0
     assert state["topics"]["deals"]["last_run_ms"] == NOW_MS
 
@@ -962,6 +964,13 @@ def test_process_topic_keeps_recent_items_within_72h(tmp_path):
     assert links == ["https://x.com/k/status/8"]
 
 
+def _complete_mock_receipt(topic, kwargs):
+    path = kwargs.get("provider_receipt_path")
+    if path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"submission":"completed", "requestId":"fixture-"+topic["key"], "payload":{"json":[]}}), encoding="utf-8")
+
+
 def test_main_runs_due_topics_and_saves_state(tmp_path, monkeypatch):
     import time as _time
 
@@ -976,7 +985,8 @@ def test_main_runs_due_topics_and_saves_state(tmp_path, monkeypatch):
 
     ran = []
 
-    def fake_process(topic, state, now_ms, run_grok_fn, lookup_fn, feed_dir):
+    def fake_process(topic, state, now_ms, run_grok_fn, lookup_fn, feed_dir, **kwargs):
+        _complete_mock_receipt(topic, kwargs)
         ran.append(topic["key"])
         state["topics"].setdefault(topic["key"], {})["last_run_ms"] = now_ms
         return {"topic": topic["key"], "returned": 0, "accepted": 0, "dropped": {}}
@@ -1012,7 +1022,7 @@ def test_main_topic_filter_and_force(tmp_path, monkeypatch):
     ran = []
     monkeypatch.setattr(
         gw, "process_topic",
-        lambda topic, *a, **k: (ran.append(topic["key"]), {"topic": topic["key"], "returned": 0, "accepted": 0, "dropped": {}})[1],
+        lambda topic, *a, **k: (_complete_mock_receipt(topic, k), ran.append(topic["key"]), {"topic": topic["key"], "returned": 0, "accepted": 0, "dropped": {}})[-1],
     )
     monkeypatch.setattr(gw, "validate_grok_transport", lambda: None)
 
@@ -1037,6 +1047,7 @@ def test_main_continues_after_single_topic_failure(tmp_path, monkeypatch):
         ran.append(topic["key"])
         if topic["key"] == "t1":
             raise RuntimeError("boom")
+        _complete_mock_receipt(topic, k)
         return {"topic": topic["key"], "returned": 0, "accepted": 0, "dropped": {}}
 
     monkeypatch.setattr(gw, "process_topic", boom_then_ok)

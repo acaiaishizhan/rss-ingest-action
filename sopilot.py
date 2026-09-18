@@ -18,7 +18,7 @@ def is_retryable_partial_receipt(receipt, batch_id=""):
     stats = (receipt or {}).get("stats") or {}
     durable_failures = (
         "filtered_log_failed", "feishu_create_failed",
-        "secondary_sync_failed", "source_state_update_failed",
+        "secondary_sync_failed", "source_state_update_failed", "worker_exception", "uncertain_writes", "held_write_items", "source_state_invalid", "snapshot_unavailable",
     )
     common = (
         isinstance(receipt, dict)
@@ -26,6 +26,10 @@ def is_retryable_partial_receipt(receipt, batch_id=""):
         and receipt.get("complete") is False
         and not receipt.get("error")
         and isinstance(receipt.get("news_records"), list)
+        and all(type(stats.get(key)) is int and stats[key] >= 0 for key in
+                ("sources_processed", "sources_failed", "queue_total", "llm_failed", *durable_failures))
+        and type(receipt.get("remaining_failed_items")) is int
+        and receipt["remaining_failed_items"] >= 0
         and all(int(stats.get(key) or 0) == 0 for key in durable_failures)
     )
     if not common:

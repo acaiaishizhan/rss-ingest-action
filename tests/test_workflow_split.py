@@ -13,7 +13,7 @@ def test_sopilot_has_a_dedicated_entry_and_queue():
     assert "sopilot_batch_id: ${{ inputs.sopilot_batch_id }}" in sopilot
     assert "sopilot_recovery_attempt: ${{ inputs.sopilot_recovery_attempt }}" in sopilot
     assert "workflow_call:" in normal
-    assert "format('sopilot-info-{0}', inputs.sopilot_batch_id)" in normal
+    assert "inputs.sopilot_batch_id && 'sopilot-info'" in normal
     assert "|| 'rss-ingest-normal'" in normal
     assert "group: feishu-write" not in normal
     assert "queue: max" not in normal

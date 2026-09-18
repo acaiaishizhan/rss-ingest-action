@@ -312,6 +312,27 @@ def test_notify_failure_cooldown_is_per_failure_type(tmp_path, monkeypatch):
     assert len(posted) == 2
 
 
+def test_outcome_silences_first_failure_and_resets_on_success(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(task_alerts, "notify_failure", lambda *a, **k: calls.append(a) or True)
+    assert not task_alerts.record_outcome("rss-ingest-fetch", 1, state_dir=tmp_path)
+    assert not task_alerts.record_outcome("rss-ingest-fetch", 0, state_dir=tmp_path)
+    assert not task_alerts.record_outcome("rss-ingest-fetch", 1, state_dir=tmp_path)
+    assert not task_alerts.record_outcome("rss-ingest-fetch", 3, state_dir=tmp_path)
+    assert not task_alerts.record_outcome("rss-ingest-fetch", 1, state_dir=tmp_path)
+    assert len(calls) == 0
+    assert json.loads((tmp_path/"rss-ingest-fetch.health.json").read_text())["consecutive_failures"] == 2
+
+
+def test_producer_outcomes_never_send_from_ephemeral_cloud_state(tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("local observer owns all producer notifications")
+    monkeypatch.setattr(task_alerts, "notify_failure", forbidden)
+    for _ in range(3):
+        assert not task_alerts.record_outcome("rss-ingest-fetch", 1, state_dir=tmp_path)
+
+
+
 def test_main_never_fails_the_caller(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("network down")

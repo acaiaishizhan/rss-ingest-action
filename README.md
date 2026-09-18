@@ -7,13 +7,13 @@
 ## 功能概览
 
 - 从飞书 RSS 源表读取订阅源并按增量规则抓取。
-- `grok_watch.py` 定时通过公共 `grok-browser` 工具调用网页端 Grok Expert 搜 X 真料；`grok-browser` 默认以 offscreen/no-focus 方式运行并在完成后清理命令页，经 fxtwitter 验真和多层去重后写本地 RSS feed，由主流程当普通源消费；运维说明见 [docs/grok-watch.md](docs/grok-watch.md)。
+- `grok_watch.py` 定时通过公共 `grok-browser` 工具调用网页端Grok Expert；离屏提交保留持久回执，未知提交不重发、不重启浏览器。生成的feed由独立`grok-ingest.yml`消费，普通RSS不再消费Grok源；运维说明见[独立流水线与恢复](docs/ingest-reliability.md)。
 - 使用本地提示词文件做 screen 分析：
   - `docs/local-keyword-blocklist.txt`
   - `docs/local-screen-triage-prompt.md`
   - `docs/local-screen-prompt.md`
 - `docs/local-summarize-prompt.md` 仅作为旧 fallback：screen 未输出 `qa` 时才会补跑。
-- screen 先在同一次初筛中输出 `keep / filter / uncertain` 与信号评分；低于 `TRIAGE_MIN_SCORE` 的条目直接进入 FILTERED。其余 `keep / uncertain` 再由内容处理一次输出内容评分、分类和 `title_zh + summary + keywords + qa`，且只允许 `uncertain` 在内容处理时改判 `pass`。内容处理评分按 `FEISHU_MIN_SCORE=6.0` 再次决定入库：低于 6 分进入回收站，正好 6 分保留；此类低分过滤也保存 LINUX DO 记录。
+- screen先输出`keep / filter / uncertain`与信号评分；低于`TRIAGE_MIN_SCORE`的条目直接进入FILTERED。其余`keep / uncertain`都允许深筛推翻，再输出内容评分、分类和`title_zh + summary + keywords + qa`。内容评分按`FEISHU_MIN_SCORE=6.0`决定入库，至少一组QA；低于6分进入回收站，正好6分保留。
 - screen 阶段同时输出 `keywords: [{name, type}]`，写入新闻表和过滤表的 `关键词` 多选字段，并可通过 `关键词记录` 关联到 KEYWORD 表做归一化。
 - KEYWORD 表支持脚本同步 `NEWS次数`、`FILTERED次数`、`最后出现`、`热度样本`；这些是快照字段，不是实时趋势。
 - `merge_keywords.py` 支持关键词合并 fixture 测试、真实候选 dry-run、核心计数字段同步，以及把别名发现结果批量追加到 KEYWORD「归一项」。
@@ -24,7 +24,7 @@
 - 支持 `item_key` 精确去重和 screen 后的 LLM 文本去重：先按关键词记录 / 关键词名称 / 本地归一快照找候选旧 NEWS，再由 LLM 判断是否同一事件。
 - 支持失败条目池 `failed_items`，后续运行会有限重试。
 - 支持飞书提醒记录表、过滤表和可选二次同步表。
-- GitHub Actions 默认每 15 分钟运行 RSS 主流程；本机 `rss-ingest-fetch` 只作为迁移回滚入口。Action 日志保留为 7 天 artifact，非零退出继续通过飞书 webhook 告警。
+- 普通RSS与Grok各有独立的15分钟Action、来源集合、并发组、启用变量和健康缓存。首次可恢复失败静默，连续失败或需要人工动作才通知；SoPilot告警归本地编排器。日志保留为7天artifact，本机`rss-ingest-fetch`仍停用。
 
 ## SoPilot 与小时 Info 衔接
 

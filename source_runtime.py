@@ -16,6 +16,23 @@ class SourceRuntimeConfigError(ValueError):
     """Raised when runtime source routing is configured unsafely."""
 
 
+def is_grok_source(source: Dict[str, Any]) -> bool:
+    path = urlparse(str(source.get("feed_url") or "").replace("\\", "/")).path.lower()
+    return bool(re.search(r"/(?:grok|grok-feeds)/[^/]+\.xml$", path))
+
+
+def grok_source_ids(sources, override_file=""):
+    overrides = _load_overrides(override_file)
+    return {source["record_id"] for source in sources if is_grok_source(source) or
+            is_grok_source({"feed_url": str(overrides.get(source.get("record_id"), ""))})}
+
+
+def select_ingest_lane(sources: Iterable[Dict[str, Any]], lane: str, grok_ids=None) -> List[Dict[str, Any]]:
+    if lane not in {"rss", "grok"}:
+        raise SourceRuntimeConfigError(f"unsupported ingest lane: {lane}")
+    return [source for source in sources if (source.get("record_id") in grok_ids if grok_ids is not None else is_grok_source(source)) == (lane == "grok")]
+
+
 @dataclass(frozen=True)
 class SkippedSource:
     record_id: str

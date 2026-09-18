@@ -1,5 +1,5 @@
 name: rss-ingest
-run-name: ${{ inputs.sopilot_batch_id && format('sopilot-{0}', inputs.sopilot_batch_id) || 'rss-ingest' }}
+run-name: ${{ inputs.sopilot_batch_id && format('sopilot-{0}', inputs.sopilot_batch_id) || inputs.ingest_lane == 'grok' && 'grok-ingest' || 'rss-ingest' }}
 
 permissions:
   contents: read
@@ -14,6 +14,11 @@ on:
         default: false
   workflow_call:
     inputs:
+      ingest_lane:
+        description: Independent producer lane
+        required: false
+        default: rss
+        type: string
       sopilot_batch_id:
         description: Hourly Info batch UUID; only supplied by the dedicated SoPilot workflow
         required: true
@@ -28,12 +33,12 @@ on:
 
 concurrency:
   # Scheduled RSS and dedicated SoPilot calls are independent execution lanes.
-  group: ${{ inputs.sopilot_batch_id && format('sopilot-info-{0}', inputs.sopilot_batch_id) || 'rss-ingest-normal' }}
+  group: ${{ inputs.sopilot_batch_id && 'sopilot-info' || inputs.ingest_lane == 'grok' && 'grok-ingest' || 'rss-ingest-normal' }}
   cancel-in-progress: false
 
 jobs:
   ingest:
-    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || vars.RSS_INGEST_ENABLED == 'true'
+    if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || (inputs.ingest_lane == 'grok' && vars.GROK_INGEST_ENABLED == 'true') || (inputs.ingest_lane != 'grok' && vars.RSS_INGEST_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -88,9 +93,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .cache/task-alerts
-          key: rss-alert-cooldown-${{ steps.alert_cache_key.outputs.hour }}
+          key: ingest-health-${{ inputs.sopilot_batch_id && 'sopilot' || inputs.ingest_lane || 'rss' }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            rss-alert-cooldown-
+            ingest-health-${{ inputs.sopilot_batch_id && 'sopilot' || inputs.ingest_lane || 'rss' }}-
 
       - name: Validate GitHub runtime
         if: github.event_name == 'workflow_dispatch' && inputs.preflight_only == true
@@ -115,6 +120,10 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.preflight_only != true
         env:
           SOPILOT_BATCH_ID: ${{ inputs.sopilot_batch_id }}
+          RSS_INGEST_LANE: ${{ inputs.ingest_lane || 'rss' }}
+          RSS_TASK_ALERTS_ONLY: "true"
+          RSS_DURABLE_WRITES: "true"
+          RSS_ALERT_OWNER: "local"
           SOPILOT_RECOVERY_ATTEMPT: ${{ inputs.sopilot_recovery_attempt }}
           PYTHONUNBUFFERED: "1"
           TZ: Asia/Shanghai
@@ -172,6 +181,8 @@ jobs:
             out/llm_http_audit.log
             out/llm_parse_failures.log
             out/text_dedup_failures.log
+            out/write-journal/
+            out/retired-failures/
           if-no-files-found: warn
           retention-days: 7
 
@@ -183,7 +194,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .cache/task-alerts
-          key: rss-alert-cooldown-${{ steps.alert_cache_key.outputs.hour }}
+          key: ingest-health-${{ inputs.sopilot_batch_id && 'sopilot' || inputs.ingest_lane || 'rss' }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Report degraded private snapshot checkout
         if: always() && steps.runtime_data.outcome == 'failure'

@@ -8,6 +8,7 @@ public entry point swallows its own errors and main() always returns 0.
 import argparse
 import hashlib
 import html
+import json
 import re
 import sys
 import time
@@ -18,6 +19,7 @@ from typing import Optional
 import config
 from feishu_client import http_post
 
+
 DEFAULT_COOLDOWN_SECONDS = 7200.0
 DEFAULT_STATE_DIR = Path(__file__).resolve().parent / ".cache" / "task-alerts"
 LOG_TAIL_MAX_LINES = 12
@@ -27,6 +29,7 @@ TASK_DISPLAY_NAMES = {
     "rss-ingest-fetch": "资讯抓取",
     "sopilot-info": "小时资讯上游",
     "grok-watch-hourly": "Grok 热点抓取",
+    "grok-ingest": "Grok 资讯入表",
     "keyword-alias-daily": "每日关键词整理",
     "keyword-audit-repair-daily": "关键词巡检修复",
 }
@@ -75,8 +78,7 @@ def read_log_context(path, max_bytes: int = LOG_CONTEXT_MAX_BYTES) -> str:
         raw = raw[-max_bytes:]
     text = _decode_log_bytes(raw)
     # rss-ingest uses one file per day locally. Ignore failures from earlier runs.
-    marker = "[runner] rss-ingest started"
-    marker_at = text.rfind(marker)
+    marker_at = max(text.rfind(marker) for marker in ("[runner] rss-ingest started", "[runner] grok-watch started"))
     if marker_at >= 0:
         text = text[marker_at:]
     return text
@@ -145,6 +147,10 @@ def diagnose_failure(task: str, log_text: str, exit_code: int = 1) -> FailureDia
     failed = counts.get("llm_failed", 0)
     lower = log_text.lower()
     detail = _clean_error_excerpt(log_text)
+
+    if "submission unknown" in lower or "ambiguous send" in lower:
+        return FailureDiagnosis("需要处理", "远端提交结果不明，自动重发已停止。",
+            "原始提交凭证已保留，其他独立任务仍可继续。", "核对原会话或发送凭证，不要重复提交。", detail)
 
     if (
         task == "sopilot-info"
@@ -605,6 +611,36 @@ def notify_failure(
     return True
 
 
+def record_outcome(task, exit_code, log_path=None, state_dir=None, now=None, **kwargs):
+    """One completed invocation is one observation; success clears its streak."""
+    directory = DEFAULT_STATE_DIR if state_dir is None else Path(state_dir)
+    if exit_code == 3:  # A skipped competing trigger is not a business failure.
+        return False
+    target = _state_path(task, directory).with_suffix(".health.json")
+    try:
+        health = json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        health = {}
+    health["consecutive_failures"] = (int(health.get("consecutive_failures", 0)) if exit_code == 75 else int(health.get("consecutive_failures", 0)) + 1) if exit_code else 0
+    health["checked_at"] = time.time() if now is None else now
+    health["exit_code"] = exit_code
+    health["pending"] = exit_code == 75
+    diagnosis = diagnose_failure(task, read_log_context(log_path) if log_path else "", exit_code) if exit_code else None
+    health["manual_action_required"] = bool(diagnosis and diagnosis.status == "需要处理")
+    directory.mkdir(parents=True, exist_ok=True)
+    staging = target.with_suffix(".tmp")
+    staging.write_text(json.dumps(health), encoding="utf-8")
+    staging.replace(target)
+    if not exit_code:
+        return False
+    diagnosis = diagnose_failure(task, read_log_context(log_path) if log_path else "", exit_code)
+    if health["consecutive_failures"] < 2 and diagnosis.status != "需要处理":
+        print(f"[task-alerts] first recoverable failure for {task}; silent")
+        return False
+    print(f"[task-alerts] outcome retained for {task}; local producer observer owns notification")
+    return False
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Send a Feishu alert for a failed scheduled task")
     parser.add_argument("--task", required=True)
@@ -613,13 +649,15 @@ def main(argv=None) -> int:
     parser.add_argument("--webhook-url", default=None)
     parser.add_argument("--state-dir", default=None)
     parser.add_argument("--cooldown", type=float, default=DEFAULT_COOLDOWN_SECONDS)
+    parser.add_argument("--observe-outcome", action="store_true")
+    parser.add_argument("--no-send", action="store_true")
     args = parser.parse_args(argv)
     try:
-        notify_failure(
+        (record_outcome if args.observe_outcome else notify_failure)(
             args.task,
             args.exit_code,
             log_path=args.log,
-            webhook_url=args.webhook_url,
+            webhook_url="" if args.no_send else args.webhook_url,
             state_dir=Path(args.state_dir) if args.state_dir else None,
             cooldown=args.cooldown,
         )

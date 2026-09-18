@@ -3,11 +3,26 @@ import random
 import threading
 import time
 import uuid
+import hashlib
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 import config
+
+CREATE_JOURNAL = ContextVar("create_journal", default=None)
+
+
+def record_create_token(app_token, table_id, fields):
+    identity = fields.get("item_key")
+    if not identity and table_id == config.FEISHU_KEYWORD_TABLE_ID:
+        identity = fields.get(config.KEYWORD_FIELD_CANONICAL_NAME)
+    if not identity:
+        return str(uuid.uuid4())
+    # UUIDv4 wire format, stable operation identity across producers/runs.
+    digest = hashlib.sha256(("record-create-v1\0"+app_token+"\0"+table_id+"\0"+str(identity)).encode()).digest()
+    return str(uuid.UUID(bytes=digest[:16], version=4))
 
 
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
@@ -584,20 +599,34 @@ def create_bitable_record_with_id(
     timeout: int,
     retries: int,
 ) -> Tuple[bool, Optional[Any]]:
-    ok, data = batch_create_bitable_records(
-        app_token,
-        table_id,
-        tenant_token,
-        [{"fields": fields}],
-        timeout,
-        retries,
-    )
+    journal = CREATE_JOURNAL.get()
+    client_token = record_create_token(app_token, table_id, fields)
+    if journal:
+        journal.begin(table_id, fields, client_token)
+    try:
+        ok, data = batch_create_bitable_records(
+            app_token, table_id, tenant_token, [{"fields": fields}], timeout, retries,
+            client_token=client_token,
+        )
+        if ok:
+            records = (data.get("data") or {}).get("records") or []
+            record = records[0] if records and isinstance(records[0], dict) else {}
+            if not record.get("record_id"):
+                raise RuntimeError("FEISHU_CREATE_UNCERTAIN: successful response has no record_id")
+        elif journal and data.get("code") not in {1254015, 1254045}:
+            raise RuntimeError("FEISHU_CREATE_UNCERTAIN: non-validation rejection requires reconciliation")
+    except Exception as error:
+        if journal:
+            journal.unknown(error)
+        raise
     if not ok:
+        if journal:
+            journal.reject(data.get("code"))
         print(f"[Feishu] create record error: {data}", flush=True)
         return False, data
-    records = (data.get("data") or {}).get("records") or []
-    record = records[0] if records and isinstance(records[0], dict) else {}
-    return True, record.get("record_id")
+    if journal:
+        journal.confirm(record["record_id"])
+    return True, record["record_id"]
 
 
 def upload_bitable_media(
