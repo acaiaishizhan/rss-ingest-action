@@ -1,10 +1,16 @@
 name: grok-ingest
+run-name: ${{ inputs.publish_id && format('publish-{0}', inputs.publish_id) || 'grok-ingest' }}
 
 permissions:
   contents: read
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_id:
+        description: Durable publisher request identity
+        required: false
+        type: string
   schedule:
     - cron: "12,27,42,57 * * * *"
 
@@ -15,4 +21,5 @@ jobs:
     with:
       sopilot_batch_id: ""
       ingest_lane: grok
+      publish_id: ${{ inputs.publish_id || '' }}
     secrets: inherit

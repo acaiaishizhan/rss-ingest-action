@@ -1,5 +1,5 @@
 name: rss-ingest
-run-name: ${{ inputs.sopilot_batch_id && format('sopilot-{0}', inputs.sopilot_batch_id) || inputs.ingest_lane == 'grok' && 'grok-ingest' || 'rss-ingest' }}
+run-name: ${{ inputs.sopilot_batch_id && format('sopilot-{0}', inputs.sopilot_batch_id) || inputs.publish_id && format('publish-{0}', inputs.publish_id) || inputs.ingest_lane == 'grok' && 'grok-ingest' || 'rss-ingest' }}
 
 permissions:
   contents: read
@@ -7,6 +7,10 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      publish_id:
+        description: Durable publisher request identity
+        required: false
+        type: string
       preflight_only:
         description: Validate secrets and private RSS snapshots without writing Feishu
         required: false
@@ -14,6 +18,10 @@ on:
         default: false
   workflow_call:
     inputs:
+      publish_id:
+        description: Durable publisher request identity
+        required: false
+        type: string
       ingest_lane:
         description: Independent producer lane
         required: false
