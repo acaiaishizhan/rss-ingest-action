@@ -18,6 +18,6 @@ Grok网页消费者先保存topic到`GROK_BROWSER_RECEIPT_FILE`的持久指针�
 
 RSS和Grok快照发布分别使用独立checkout、状态和锁，保留不可变Git提交，以merge衔接互斥路径。发布成功后主动触发各自workflow；GitHub schedule只作补充，不能保证及时触发。发前保存唯一publish_id和提交版本，未知结果按run标题只读查回、不重发；新快照可建立新的请求，旧请求证据独立归档。
 
-任何云端终止失败不证明写表全部回滚。`RSS_DURABLE_WRITES=true`在写表前把意图持久保存到来源的failed_items，并使用稳定client_token。未知结果只通过原目标表中唯一正证据确认，查不到不能重发。含未知写入的条目不受普通失败过期规则清理；其他条目可以继续。普通过期失败先归档证据再退休。SoPilot schema2回执绑定原run、attempt、head、workflow和来源快照；旧协议不明写入保持held，不能冒充安全重试。
+普通 RSS 写入失败后保留在来源的 failed_items，本班其余条目继续，下一班直接重试。每次新的处理尝试使用新的 client_token；跨班去重由 item_key 预取负责。单条写入、解析或来源失败不会单独把整班标红，只有整班无法运行、整个 LLM 队列失败或专用来源快照缺失时才失败。SoPilot schema2 回执仍绑定原 run、attempt、head、workflow 和来源快照。
 
 测试只是部署门槛。最终验收需要至少三个实际小时的独立Info/SoPilot结果，以及真实消息凭证、NEWS回写、剩余数量和无重复写入证据。

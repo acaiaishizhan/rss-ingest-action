@@ -130,7 +130,6 @@ jobs:
           SOPILOT_BATCH_ID: ${{ inputs.sopilot_batch_id }}
           RSS_INGEST_LANE: ${{ inputs.ingest_lane || 'rss' }}
           RSS_TASK_ALERTS_ONLY: "true"
-          RSS_DURABLE_WRITES: "true"
           RSS_ALERT_OWNER: "local"
           SOPILOT_RECOVERY_ATTEMPT: ${{ inputs.sopilot_recovery_attempt }}
           PYTHONUNBUFFERED: "1"

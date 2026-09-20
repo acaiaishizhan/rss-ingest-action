@@ -5488,7 +5488,8 @@ def _main(sopilot_receipt=None) -> int:
         f"text_dedup_skipped={stats['text_dedup_skipped']} "
         f"sync_ok={stats['secondary_sync_ok']} "
         f"sync_failed={stats['secondary_sync_failed']} "
-        f"source_state_failed={stats['source_state_update_failed']}"
+        f"source_state_failed={stats['source_state_update_failed']} "
+        f"retry_pending={sum(len(state.get('updated_failed_items') or []) for state in source_states.values())}"
     )
     fatal_source_failures = source_failures_are_fatal(stats)
     if stats.get("sources_failed") and not fatal_source_failures:
@@ -5497,14 +5498,7 @@ def _main(sopilot_receipt=None) -> int:
             "[RSS] degraded source failures tolerated "
             f"failed={stats['sources_failed']} attempted={attempted_sources}"
         )
-    failure_fields = (
-        "feishu_create_failed",
-        "filtered_log_failed",
-        "secondary_sync_failed",
-        "source_state_update_failed",
-        "worker_exception", "uncertain_writes", "held_write_items", "source_state_invalid", "snapshot_unavailable",
-    )
-    has_processing_failure = any(int(stats.get(field, 0) or 0) > 0 for field in failure_fields)
+    snapshot_unavailable = int(stats.get("snapshot_unavailable", 0) or 0) > 0
     all_queued_llm_items_failed = (
         int(stats.get("queue_total", 0) or 0) > 0
         and int(stats.get("llm_failed", 0) or 0) >= int(stats.get("queue_total", 0) or 0)
@@ -5513,7 +5507,9 @@ def _main(sopilot_receipt=None) -> int:
     )
     if all_queued_llm_items_failed:
         log("[LLM] fatal: every queued item failed; marking the run unsuccessful")
-    return 1 if fatal_source_failures or has_processing_failure or all_queued_llm_items_failed else 0
+    # Per-item processing/write failures stay in failed_items and retry next run.
+    # Red is reserved for a run that could not operate as a batch.
+    return 1 if fatal_source_failures or snapshot_unavailable or all_queued_llm_items_failed else 0
 
 
 def main() -> int:

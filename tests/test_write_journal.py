@@ -98,6 +98,22 @@ def test_same_item_has_same_v4_operation_across_independent_producers(tmp_path, 
     assert uuid.UUID(next(iter(rows))).version == 4
 
 
+def test_ordinary_create_uses_a_fresh_operation_token_on_next_attempt(monkeypatch):
+    tokens = []
+
+    def remote(*args, **kwargs):
+        tokens.append(kwargs["client_token"])
+        return False, {"code": 1254291, "msg": "write conflict"}
+
+    monkeypatch.setattr(client, "batch_create_bitable_records", remote)
+
+    assert client.create_bitable_record_with_id("app", "news", "tenant", {"item_key": "item"}, 1, 1)[0] is False
+    assert client.create_bitable_record_with_id("app", "news", "tenant", {"item_key": "item"}, 1, 1)[0] is False
+    assert len(tokens) == 2
+    assert tokens[0] != tokens[1]
+    assert all(uuid.UUID(token).version == 4 for token in tokens)
+
+
 def test_ack_without_record_id_is_unknown_and_never_green(tmp_path, monkeypatch):
     journal = setup_journal(tmp_path, monkeypatch)
     monkeypatch.setattr(client, "batch_create_bitable_records", lambda *a, **k: (True, {"data": {"records": []}}))

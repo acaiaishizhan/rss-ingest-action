@@ -600,7 +600,10 @@ def create_bitable_record_with_id(
     retries: int,
 ) -> Tuple[bool, Optional[Any]]:
     journal = CREATE_JOURNAL.get()
-    client_token = record_create_token(app_token, table_id, fields)
+    # Ordinary RSS writes use a fresh operation token on each processing attempt.
+    # The item_key prefetch and failed-items queue provide cross-run dedup/retry.
+    # A durable journal may still pin a token for an explicitly journaled operation.
+    client_token = record_create_token(app_token, table_id, fields) if journal else str(uuid.uuid4())
     if journal:
         journal.begin(table_id, fields, client_token)
     try:

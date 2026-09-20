@@ -2871,6 +2871,67 @@ def test_main_tolerates_single_llm_item_deferred_for_retry(monkeypatch):
     assert rss_ingest.main() == 0
 
 
+def test_main_keeps_partial_write_failures_for_next_run_without_marking_batch_failed(monkeypatch):
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_ID", "app", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_SECRET", "secret", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_TOKEN", "app-token", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_NEWS_TABLE_ID", "news", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_RSS_TABLE_ID", "rss", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "FEISHU_KEYWORD_TABLE_ID", "", raising=False)
+    monkeypatch.setattr(rss_ingest.config, "ENABLE_SECONDARY_SYNC", False, raising=False)
+    monkeypatch.setattr(rss_ingest, "get_tenant_access_token", lambda *args: "tenant")
+    monkeypatch.setattr(
+        rss_ingest,
+        "load_local_prompt_sections",
+        lambda: {"keyword_name_blocklist": set(), "keyword_blocklist": set(), "path": "test"},
+    )
+    monkeypatch.setattr(
+        rss_ingest,
+        "list_bitable_records",
+        lambda *args, **kwargs: [
+            {"record_id": "source-1", "fields": {"enabled": True, "feed_url": "https://example.com/rss"}}
+        ],
+    )
+    monkeypatch.setattr(rss_ingest, "prefetch_recent_item_keys_with_retries", lambda *args: set())
+    monkeypatch.setattr(
+        rss_ingest,
+        "split_sources_and_queue",
+        lambda *args, **kwargs: (
+            [],
+            {
+                "source-1": {
+                    "source": {"record_id": "source-1", "name": "fixture"},
+                    "updated_failed_items": [{"item_key": "retry-me", "last_seen_ms": 123}],
+                    "retired_failed_items": [],
+                    "now_ms": 123,
+                    "latest_pub_ms": 0,
+                    "latest_key": "",
+                    "new_count": 0,
+                }
+            },
+            {
+                "queue_total": 10,
+                "sources_processed": 1,
+                "sources_skipped": 0,
+                "sources_failed": 0,
+                "entries_fetched": 10,
+            },
+        ),
+    )
+
+    def partial_failure(queue, source_states, tenant_token, existing_keys, stats, **kwargs):
+        stats["llm_success"] = 4
+        stats["llm_filtered"] = 4
+        stats["llm_failed"] = 2
+        stats["worker_exception"] = 2
+        stats["feishu_create_failed"] = 2
+
+    monkeypatch.setattr(rss_ingest, "run_llm_queue", partial_failure)
+    monkeypatch.setattr(rss_ingest, "update_source_record_fields", lambda *args, **kwargs: True)
+
+    assert rss_ingest.main() == 0
+
+
 def test_main_returns_nonzero_when_every_queued_llm_item_fails(monkeypatch):
     monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_ID", "app", raising=False)
     monkeypatch.setattr(rss_ingest.config, "FEISHU_APP_SECRET", "secret", raising=False)
