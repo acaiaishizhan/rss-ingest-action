@@ -4913,6 +4913,14 @@ def run_llm_queue(
                 state["now_ms"],
             )
 
+        def clear_completed_retry() -> None:
+            if not item.get("from_failed"):
+                return
+            state["updated_failed_items"][:] = [
+                failed for failed in state["updated_failed_items"]
+                if failed.get("item_key") != item["item_key"]
+            ]
+
         extraction = article.get("extraction") or {}
         if (urlparse(str(article.get("link") or "")).hostname or "").lower() in {"linux.do", "www.linux.do"} and extraction.get("status") == "fetch_error":
             with lock:
@@ -4960,6 +4968,9 @@ def run_llm_queue(
             if not recorded:
                 with lock:
                     remember_write_failure("filtered_create_failed")
+            else:
+                with lock:
+                    clear_completed_retry()
             return
         categories = analysis.get("categories") or []
         if isinstance(categories, list) and any(c in FAILED_CATEGORIES for c in categories):
@@ -4996,6 +5007,9 @@ def run_llm_queue(
                 if not recorded:
                     with lock:
                         remember_write_failure("content_policy_filtered_create_failed")
+                else:
+                    with lock:
+                        clear_completed_retry()
                 return
             with lock:
                 stats["llm_failed"] += 1
@@ -5077,6 +5091,7 @@ def run_llm_queue(
                             remember_write_failure("filtered_create_failed")
                         return
                     with lock:
+                        clear_completed_retry()
                         stats["text_dedup_skipped"] += 1
                     return
 
@@ -5171,10 +5186,13 @@ def run_llm_queue(
             with lock:
                 if not recorded:
                     remember_write_failure("filtered_create_failed")
+                else:
+                    clear_completed_retry()
                 stats["entries_low_score"] += 1
         with lock:
             stats["entries_processed"] += 1
             if created_news:
+                clear_completed_retry()
                 existing_keys.add(item["item_key"])
                 stats["entries_written"] += 1
                 stats["entries_new"] += 1
