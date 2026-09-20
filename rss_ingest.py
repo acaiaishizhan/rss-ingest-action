@@ -4634,15 +4634,25 @@ def split_sources_and_queue(
                     fetch_results[index] = retry_result
 
     for result in fetch_results:
-        if not result or result.get("status") != "ok":
+        if not result:
             stats["sources_skipped"] += 1
-            if not result or result.get("error") or result.get("fetch_status"):
-                stats["sources_failed"] += 1
+            stats["sources_failed"] += 1
             continue
-
         source = result["source"]
         now_ms = result["now_ms"]
-        feed = result["feed"]
+        if result.get("status") != "ok":
+            stats["sources_skipped"] += 1
+            stats["sources_failed"] += 1
+            try:
+                saved_failures = parse_failed_items(source.get("failed_items"))
+            except (ValueError, TypeError):
+                saved_failures = []
+            if not saved_failures:
+                continue
+            log(f"[Retry] source fetch failed; retrying saved items source={source.get('name') or source.get('feed_url')} count={len(saved_failures)}")
+            feed = SimpleNamespace(entries=[], feed={"title": source.get("name") or source.get("feed_url")})
+        else:
+            feed = result["feed"]
         source_is_aihot = aihot_filter.is_aihot_source(source)
         aihot_filter_sources = all_sources or sources
         last_item_pub_time = source.get("last_item_pub_time") or 0
@@ -4689,7 +4699,6 @@ def split_sources_and_queue(
         retired_failed_items: List[Dict[str, Any]] = []
 
         if failed_items:
-            retry_budget = config.FAILED_ITEMS_RETRY_LIMIT
             for item in failed_items:
                 item_key = item.get("item_key") or ""
                 if not item_key:
@@ -4730,9 +4739,6 @@ def split_sources_and_queue(
                 if item_key in queued_item_keys:
                     processed_keys.add(item_key)
                     continue
-                if retry_budget <= 0:
-                    updated_failed_items.append(item)
-                    continue
                 if source_is_aihot:
                     decision = aihot_filter.decide_aihot_entry(entry, aihot_filter_sources, source=source)
                     if decision.action != "allow":
@@ -4743,8 +4749,6 @@ def split_sources_and_queue(
                         stats["aihot_allowed_twitter"] += 1
                     elif decision.reason == "selected_uncovered_by_enabled_source":
                         stats["aihot_allowed_selected"] += 1
-                retry_budget -= 1
-
                 entry_ts = normalize_entry_published_ts(entry, now_ms)
                 entry_ts_ms = entry_ts * 1000 if entry_ts else 0
                 extraction = extract_article_text(
