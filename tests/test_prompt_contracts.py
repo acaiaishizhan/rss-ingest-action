@@ -70,10 +70,15 @@ def test_screen_prompt_ingest_contract_has_required_fields():
 
 def test_screen_prompt_pass_schema_matches_validator():
     text = _read("local-screen-prompt.md")
-    passes = [item for item in _fenced_json_objects(text) if item.get("action") == "pass"]
-    assert passes
-    for payload in passes:
-        assert {"action", "reason", "title_zh", "summary", "keywords", "increment"}.issubset(payload)
+    for marker in ("## 模式 B（pass", "模式 B（丢弃）字段顺序：", "模式 B（丢弃）："):
+        parts = text.split(marker, 1)
+        if len(parts) > 1:
+            pass_block = parts[1].split("}", 1)[0]
+            break
+    else:
+        raise AssertionError("模式 B block not found")
+    for field in ('"action"', '"reason"', '"title_zh"', '"summary"', '"keywords"'):
+        assert field in pass_block
     assert "`ingest` 严格 1-3 个" in text
     assert "`pass` 允许 0-3 个" in text
     assert "无效内容" not in text
@@ -86,23 +91,16 @@ def test_triage_prompt_has_three_way_json_contract():
     assert '"evidence"' in text
     assert '"reason"' in text
     assert "先判断 keep、filter、uncertain 并锁定 verdict，再独立给出 signal score" in text
-    assert "不是无条件入库" in text
-    assert "不替最终个性化筛选决定通知" in text
+    assert "score 必须 >= 5.0" in text
+    assert "S1 八类全部未命中时，才评噪音" in text
 
 
-def test_summarize_schema_accepts_one_qa_without_padding():
+def test_summarize_schema_shows_at_least_three_qa_items():
     text = _read("local-summarize-prompt.md")
     schema = text.split("# JSON Schema", 1)[1].split("# Step 1", 1)[0]
-    assert len(re.findall(r'"question"', schema)) == 1
-    assert "一条材料只有一个独立信息点就写1组" in text
+    assert len(re.findall(r'"question"', schema)) >= 3
+    assert "少于 3 组会被系统拒绝" in text
     assert '"title_zh"' not in schema
-
-
-def test_screen_requires_independent_increment_before_packaging():
-    text = _read("local-screen-prompt.md")
-    assert "keep 和 uncertain 都有否决权" in text
-    for item in _fenced_json_objects(text):
-        assert item["increment"]["kind"] in {"failure", "none"}
 
 
 def test_merge_prompts_do_not_show_markdown_fences():

@@ -1,11 +1,16 @@
 # 提示词索引
 
-默认分别读取以下文件，本索引不是运行时完整提示词：
-1. `docs/local-keyword-blocklist.txt`：原有范围过滤，未改。
-2. `docs/local-screen-triage-prompt.md`：只做范围路由；keep不是入库承诺。现有3.8初筛闸门不变。
-3. `docs/local-screen-prompt.md`：keep/uncertain均先判断原材料增量，再做字段整理；kind=none过滤。0–10分仍按现有FEISHU_MIN_SCORE（默认6.0）入库，不抬门槛。
-4. `docs/local-summarize-prompt.md`：缺QA时的既有fallback，改为1–5组，不凑3组。
+先读 [RSS 提示词保护基线](rss-screening-baseline.md)。未经用户明确要求不得改写；普通 RSS 低增量路线已否决，不得继续或 resume。
 
-Grok各专题仍使用`docs/local-grok-prompts/*.md`，`grok_watch._read_prompt`统一追加`docs/local-grok-quality.md`；必须经该入口运行才能加载增量约束。
-`screening_value.py`只验证字段类型、枚举和有限分数，不调用模型、也不判定原文真假。
-最终个性化只在final-filter按完整原稿+user-preferences判断，方法去重也只在有七天历史的这一层执行。没有新增审核模型。
+程序默认不再读取这个总文件，而是分别读取下面 4 个文件：
+
+1. `docs/local-keyword-blocklist.txt`
+2. `docs/local-screen-triage-prompt.md`（三态高召回初筛 + 信号评分；低于 `TRIAGE_MIN_SCORE` 时直接过滤）
+3. `docs/local-screen-prompt.md`（内容处理；生成内容评分 + 分类 + 标题 + 摘要 + keywords + QA，并只对 uncertain 做终审；输出后由程序执行最终内容门槛 6.0，低于 6.0 进入回收站）
+4. `docs/local-summarize-prompt.md`（fallback：仅在内容处理未输出 qa 时调用）
+
+如果你只想改关键词黑名单，就改第 1 个文件。
+如果你想改第一道闸门的召回、分流或信号评分，改第 2 个文件；修改终审去噪、内容评分、分类标签、标题/摘要/关键词/QA 逻辑，改第 3 个文件。
+第 4 个文件是旧版 QA 提示词，仅作为 fallback 保留。
+
+只有在代码里显式传入这个文件路径时，才会按旧的单文件格式解析。

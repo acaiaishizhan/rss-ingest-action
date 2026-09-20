@@ -59,7 +59,7 @@ def screen(kind="mechanism", score=6.0):
     return {"action": "ingest", "increment": inc(kind), "categories": ["AI工具与自动化"],
             "score": score, "reason": "具体新增", "title_zh": "标题", "summary": "事实摘要",
             "keywords": [{"name": "SARA", "type": "product"}],
-            "qa": [{"question": "机制是什么？", "answer": "观测不产生执行授权。"}]}
+            "qa": [{"question": f"问题{i}？", "answer": f"原文事实{i}。"} for i in range(3)]}
 
 
 @pytest.mark.parametrize("value", [None, True, False, float("nan"), float("inf"),
@@ -79,21 +79,20 @@ def test_low_evidence_states_are_allowed(rss, source):
     assert rss["validate_staged_content_result"](payload, "keep")["action"] == "ingest"
 
 
-def test_missing_increment_is_format_error_not_skip(rss):
+def test_rss_does_not_require_increment(rss):
     payload = screen(); payload.pop("increment")
-    with pytest.raises(ValueError, match="invalid increment"):
-        rss["validate_staged_content_result"](payload, "keep")
+    assert rss["validate_staged_content_result"](payload, "keep")["action"] == "ingest"
 
 
 @pytest.mark.parametrize("verdict", ["keep", "uncertain"])
-def test_none_cannot_be_rescued_by_nine_points(rss, verdict):
+def test_rejected_increment_field_cannot_veto_rss(rss, verdict):
     out = rss["validate_staged_content_result"](screen(kind="none", score=9), verdict)
-    assert out["action"] == "pass"
-    assert out["increment"]["kind"] == "none"
-    assert "低增量" in out["reason"]
+    assert out["action"] == "ingest"
+    assert "increment" not in out
+    assert "低增量" not in out["reason"]
 
 
-def test_keep_can_be_vetoed_without_retry(rss):
+def test_keep_is_not_vetoed_by_increment_metadata(rss):
     replies = iter([{"verdict": "keep", "score": 6.5, "evidence": "通用流程", "reason": "范围相关"},
                     screen(kind="none", score=6.6)])
     calls = []
@@ -103,13 +102,16 @@ def test_keep_can_be_vetoed_without_retry(rss):
     rss["analyze_with_provider_prompt"] = llm
     out = rss["analyze_article_staged"]({"title": "保函", "content": "提取→初稿→人审→留痕"},
                                       "triage", "screen", "mock", "mock")
-    assert out["action"] == "pass"
+    assert out["action"] == "ingest"
     assert out["_llm_meta"]["llm_request_count"] == len(calls) == 2
 
 
-def test_one_qa_is_enough(rss):
-    assert len(rss["validate_summary_result"](screen())["qa"]) == 1
-    assert len(rss["validate_staged_content_result"](screen(), "keep")["qa"]) == 1
+def test_original_three_qa_contract_is_restored(rss):
+    payload = screen(); payload["qa"] = payload["qa"][:1]
+    with pytest.raises(ValueError, match="at least 3"):
+        rss["validate_summary_result"](payload)
+    with pytest.raises(ValueError, match="at least 3"):
+        rss["validate_staged_content_result"](payload, "keep")
 
 
 @pytest.mark.parametrize("value", [None, True, "NaN", float("inf")])
@@ -118,10 +120,10 @@ def test_missing_and_nonfinite_ingest_score_fails_validation(rss, value):
         rss["validate_staged_content_result"](screen(score=value), "keep")
 
 
-def test_prompt_does_not_present_generated_title_as_fact(rss):
+def test_original_article_prompt_wrapper_is_restored(rss):
     result = rss["build_prompt"]({"title": "十分钟签单", "content": "10分钟出方案 [Grok摘要]10分钟成交"}, "system")
-    assert "不是独立事实" in result
-    assert "旧格式从[Grok摘要]" in result
+    assert "title：十分钟签单" in result
+    assert "content：10分钟出方案" in result
     assert "system" in result and "10分钟出方案" in result
 
 

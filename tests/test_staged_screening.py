@@ -26,17 +26,7 @@ def _qa():
     ]
 
 
-def _increment(kind="mechanism"):
-    return {
-        "kind": kind,
-        "delta": "新增机制" if kind != "none" else "无；仍是通用流程",
-        "detail": "测试夹具中的具体内容",
-        "source_status": "self_report",
-        "boundary": "模拟返回，不代表真实新闻",
-    }
-
-
-def test_staged_keep_can_be_overridden(monkeypatch):
+def test_staged_keep_cannot_be_overridden(monkeypatch):
     calls = []
     responses = [
         {"verdict": "keep", "score": 6.2, "evidence": "工具能力变化", "reason": "明确命中"},
@@ -46,7 +36,16 @@ def test_staged_keep_can_be_overridden(monkeypatch):
             "title_zh": "测试标题",
             "summary": "测试摘要",
             "keywords": [],
-            "increment": _increment("none"),
+        },
+        {
+            "action": "ingest",
+            "categories": ["AI工具与自动化"],
+            "score": 4.5,
+            "reason": "初筛 keep 不可推翻",
+            "title_zh": "测试标题",
+            "summary": "测试摘要",
+            "keywords": [{"name": "工具A", "type": "product"}],
+            "qa": _qa(),
         },
     ]
 
@@ -57,10 +56,12 @@ def test_staged_keep_can_be_overridden(monkeypatch):
     monkeypatch.setattr(rss_ingest, "analyze_with_provider_prompt", fake_analyze)
     result = rss_ingest.analyze_article(ARTICLE, _prompts(), provider="deepseek", include_summary=False)
 
-    assert result["action"] == "pass"
+    assert result["action"] == "ingest"
+    assert result["score"] == 4.5
     assert result["_llm_meta"]["triage_verdict"] == "keep"
-    assert result["_llm_meta"]["llm_request_count"] == 2
+    assert result["_llm_meta"]["llm_request_count"] == 3
     assert "initial_verdict: keep" in calls[1]
+    assert "triage keep cannot be overridden" in calls[2]
 
 
 def test_staged_uncertain_can_pass(monkeypatch):
@@ -72,7 +73,6 @@ def test_staged_uncertain_can_pass(monkeypatch):
             "title_zh": "某AI公司完成融资",
             "summary": "某AI公司完成新一轮融资。",
             "keywords": [{"name": "某AI公司", "type": "org"}],
-            "increment": _increment("none"),
         },
     ]
     monkeypatch.setattr(
