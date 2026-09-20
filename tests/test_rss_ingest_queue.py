@@ -2391,6 +2391,21 @@ def test_cap_source_cursor_for_failed_items_stops_before_earliest_failed_item():
     assert latest_key == ""
 
 
+def test_retry_entry_rebuilds_item_after_it_leaves_rolling_feed():
+    entry = rss_ingest.retry_entry_from_failed_item(
+        {
+            "item_key": "guid-1",
+            "title": "Retry me",
+            "link": "https://example.com/retry",
+            "published_ms": 1_700_000_000_000,
+        }
+    )
+
+    assert entry["id"] == "guid-1"
+    assert entry["link"] == "https://example.com/retry"
+    assert rss_ingest.entry_published_ts(entry) == 1_700_000_000
+
+
 def test_parse_failed_items_accepts_feishu_rich_text_json():
     raw = [
         {

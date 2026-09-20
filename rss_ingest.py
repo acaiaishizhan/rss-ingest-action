@@ -3169,6 +3169,25 @@ def normalize_entry_published_ts(entry: Dict[str, Any], now_ms: int) -> int:
     return entry_ts
 
 
+def retry_entry_from_failed_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Rebuild the minimal feed entry needed to retry an item that left a rolling feed."""
+
+    item_key = clean_feishu_value(item.get("item_key")).strip()
+    link = clean_feishu_value(item.get("link")).strip()
+    if not item_key or not link:
+        return None
+    entry: Dict[str, Any] = {
+        "id": item_key,
+        "guid": item_key,
+        "link": link,
+        "title": clean_feishu_value(item.get("title")).strip(),
+    }
+    published_ms = int(item.get("published_ms") or 0)
+    if published_ms > 0:
+        entry["published_parsed"] = time.gmtime(published_ms / 1000)
+    return entry
+
+
 def build_article_base_fields(article: Dict[str, Any], item_key: str) -> Dict[str, Any]:
     published = article.get("published")
     if isinstance(published, (int, float)) and published > 0:
@@ -4702,10 +4721,12 @@ def split_sources_and_queue(
                         retired_failed_items.append({"reason": "outside_current_selected_snapshot", "item": item})
                         processed_keys.add(item_key)
                         continue
-                    item["miss_count"] = int(item.get("miss_count") or 0) + 1
-                    item["last_seen_ms"] = now_ms
-                    updated_failed_items.append(item)
-                    continue
+                    entry = retry_entry_from_failed_item(item)
+                    if entry is None:
+                        item["miss_count"] = int(item.get("miss_count") or 0) + 1
+                        item["last_seen_ms"] = now_ms
+                        updated_failed_items.append(item)
+                        continue
                 if item_key in queued_item_keys:
                     processed_keys.add(item_key)
                     continue
