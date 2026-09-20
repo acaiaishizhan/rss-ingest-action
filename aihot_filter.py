@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 
 AIHOT_FEED_HOST = "aihot.virxact.com"
+AIHOT_HOSTS = {AIHOT_FEED_HOST, "aihot.news"}
 AIHOT_FEED_PATH = "/feed/all.xml"
 AIHOT_ALL_FEED_PATH = "/feed/all.xml"
 AIHOT_SELECTED_FEED_PATHS = {"/feed", "/feed.xml", "/rss"}
@@ -53,7 +54,7 @@ def aihot_feed_kind(source: Any) -> str:
         value = str(source or "")
     parsed = urlparse(value)
     path = parsed.path.rstrip("/") or "/"
-    if normalize_host(parsed.netloc) != AIHOT_FEED_HOST:
+    if normalize_host(parsed.netloc) not in AIHOT_HOSTS:
         return ""
     if path == AIHOT_ALL_FEED_PATH:
         return "all"
@@ -103,13 +104,13 @@ def _clean_url(url: str) -> str:
 
 def extract_aihot_original_url(entry: Dict[str, Any]) -> str:
     direct_url = _clean_url(str(_entry_value(entry, "link") or _entry_value(entry, "url") or ""))
-    if direct_url and normalize_host(urlparse(direct_url).netloc) != AIHOT_FEED_HOST:
+    if direct_url and normalize_host(urlparse(direct_url).netloc) not in AIHOT_HOSTS:
         return direct_url
 
     for text in _entry_text_candidates(entry):
         for match in URL_RE.findall(html.unescape(text or "")):
             url = _clean_url(match)
-            if url and normalize_host(urlparse(url).netloc) != AIHOT_FEED_HOST:
+            if url and normalize_host(urlparse(url).netloc) not in AIHOT_HOSTS:
                 return url
     return ""
 

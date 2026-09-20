@@ -4,6 +4,29 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import aihot_filter
+import pytest
+
+
+@pytest.mark.parametrize('host', ['aihot.virxact.com', 'aihot.news', 'www.aihot.news'])
+def test_aihot_domain_migration_preserves_original_url_and_identity(host):
+    feed = source('AI HOT', f'https://{host}/feed/all.xml')
+    entry = {'link': f'https://{host}/items/story',
+             'summary': '<a href="https://aihot.news/items/story">AI HOT</a> '
+                        '<a href="https://x.com/example/status/123">阅读原文</a>'}
+    assert aihot_filter.aihot_feed_kind(feed) == 'all'
+    assert aihot_filter.extract_aihot_original_url(entry) == 'https://x.com/example/status/123'
+    assert aihot_filter.decide_aihot_entry(entry, [], source=feed).action == 'allow'
+    patched = aihot_filter.entry_for_ingest(entry, source=feed)
+    assert patched['guid'] == patched['link'] == 'https://x.com/example/status/123'
+
+
+def test_aihot_new_domain_selected_still_excludes_covered_sources():
+    feed = source('AI HOT 精选', 'https://aihot.news/feed')
+    entry = {'link': 'https://aihot.news/items/story',
+             'summary': '阅读原文：https://techcrunch.com/example'}
+    decision = aihot_filter.decide_aihot_entry(
+        entry, [source('TechCrunch', 'https://techcrunch.com/feed')], source=feed)
+    assert decision.reason == 'covered_by_enabled_source'
 
 
 def source(name, url, enabled=True):
