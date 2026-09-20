@@ -5252,6 +5252,24 @@ def run_llm_queue(
         future_items = {executor.submit(execute_item, item): item for item in queue}
         consume_futures(future_items)
 
+
+def retire_completed_retry_items(queue: List[Dict[str, Any]], source_states: Dict[str, Dict[str, Any]]) -> None:
+    """Drop old failed entries that were retried and did not fail again this run."""
+
+    retried: Dict[str, set] = {}
+    for item in queue:
+        if item.get("from_failed"):
+            retried.setdefault(item["source_id"], set()).add(item["item_key"])
+    for source_id, keys in retried.items():
+        state = source_states.get(source_id)
+        if not state:
+            continue
+        now_ms = int(state.get("now_ms") or 0)
+        state["updated_failed_items"][:] = [
+            failed for failed in state["updated_failed_items"]
+            if failed.get("item_key") not in keys or int(failed.get("last_seen_ms") or 0) >= now_ms
+        ]
+
 def _main(sopilot_receipt=None) -> int:
     required = []
     if not config.FEISHU_APP_ID:
@@ -5430,6 +5448,7 @@ def _main(sopilot_receipt=None) -> int:
         **({"written_records": sopilot_receipt["news_records"]} if sopilot_receipt is not None else {}),
         **({"durable_writes": True} if os.getenv("RSS_DURABLE_WRITES") == "true" else {}),
     )
+    retire_completed_retry_items(queue, source_states)
 
     if secondary_sync_enabled and secondary_pending_items is not None:
         sync_secondary_records(

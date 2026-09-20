@@ -2406,6 +2406,27 @@ def test_retry_entry_rebuilds_item_after_it_leaves_rolling_feed():
     assert rss_ingest.entry_published_ts(entry) == 1_700_000_000
 
 
+def test_retire_completed_retry_items_keeps_only_failures_seen_again_this_run():
+    queue = [
+        {"source_id": "s1", "item_key": "done", "from_failed": True},
+        {"source_id": "s1", "item_key": "failed-again", "from_failed": True},
+    ]
+    states = {
+        "s1": {
+            "now_ms": 200,
+            "updated_failed_items": [
+                {"item_key": "done", "last_seen_ms": 100},
+                {"item_key": "failed-again", "last_seen_ms": 200},
+                {"item_key": "not-retried", "last_seen_ms": 100},
+            ],
+        }
+    }
+
+    rss_ingest.retire_completed_retry_items(queue, states)
+
+    assert [item["item_key"] for item in states["s1"]["updated_failed_items"]] == ["failed-again", "not-retried"]
+
+
 def test_parse_failed_items_accepts_feishu_rich_text_json():
     raw = [
         {
