@@ -127,6 +127,8 @@ def prepare_sources_for_runtime(
         if override_path is not None:
             if override_path.is_file():
                 copy = dict(source)
+                copy["original_feed_url"] = feed_url
+                copy["runtime_source_override"] = True
                 copy["feed_url"] = str(override_path)
                 selected.append(copy)
                 overrides_applied += 1

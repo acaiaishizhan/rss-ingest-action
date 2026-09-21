@@ -61,6 +61,8 @@ def test_github_mode_keeps_public_sources_and_applies_private_overrides(tmp_path
 
     assert [source["record_id"] for source in selection.sources] == ["public", "local-private"]
     assert selection.sources[1]["feed_url"] == str(private_feed.resolve())
+    assert selection.sources[1]["original_feed_url"] == "http://127.0.0.1:8787/rss/all.xml"
+    assert selection.sources[1]["runtime_source_override"] is True
     assert selection.overrides_applied == 1
     assert {item.record_id for item in selection.skipped} == {"local-unmapped", "grok-file"}
 

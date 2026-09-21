@@ -26,18 +26,15 @@
 - 支持飞书提醒记录表、过滤表和可选二次同步表。
 - 普通RSS与Grok各有独立的15分钟Action、来源集合、并发组、启用变量和健康缓存。首次可恢复失败静默，连续失败或需要人工动作才通知；SoPilot告警归本地编排器。日志保留为7天artifact，本机`rss-ingest-fetch`仍停用。
 
-## SoPilot 与小时 Info 衔接
+## SoPilot 本地快照过渡
 
-新增入口`sopilot.py`读取`https://sopilot.net/zh/rank/tweets?range=6h`，合并6h AI、Creator全部分页的飙升榜与曝光榜。2026-09-16真实审计发现“全部领域”独有结果主要是国际局势、币圈、情色八卦、暴力事件和生活问答，已从常驻入口删除，不得自动恢复。公开内嵌数据中的UTF-8长度文本记录会被完整解析，保留正文外链和真实发布时间。
+SoPilot 的 AI、Creator 榜单采集将由本机生成私有快照；GitHub 只读取 `source-map.json` 中映射到 `feeds/sopilot.xml` 的内容并继续处理。榜单仍不包含“全部领域”，该范围此前主要带来国际局势、币圈、情色八卦、暴力事件和生活问答，不得恢复。
 
-RSS源表只注册一条上述URL，`enabled=true`、`item_id_strategy=guid`。普通RSS运行跳过此源；小时Info执行器通过`workflow_dispatch`传入唯一`sopilot_batch_id`，本次只选SoPilot来源，仍复用既有初筛、内容评分、关键词、语义去重与飞书写入。SoPilot不受普通源200条上限及发布时间水位限制，原帖身份仍去重。
+RSS源表保留原 SoPilot URL，`enabled=true`、`item_id_strategy=guid`。只要它被本地快照映射，普通 RSS 入口就会处理它；仍复用既有初筛、内容评分、关键词、语义去重与飞书写入。SoPilot不受普通源200条上限及发布时间水位限制，原帖身份仍去重。
 
 进入LLM前先做一层本地高召回相关性预筛：保留明确AI/Agent/模型/工具/生产工作流信号，以及具体创作者生产、一人公司和增长经营信号；其余不调用LLM，也不写入FILTERED回收站。该门禁只负责挡明显无关内容，最终价值判断仍由原有NEWS与Info流程负责。真实两天数据回放中，门禁挡掉约三分之二的SoPilot回收站记录，并保留全部已投递条目；后续以`stats.sopilot_discovered`与`stats.sopilot_prefiltered`持续观察。
 
-完成回执位于`out/sopilot/<batch_id>.json`，上传为`sopilot-<batch_id>` artifact。包含新增NEWS记录ID、队列URL、统计和完整成功标记；有抓取/处理/写入失败或未解决失败条目时不标完整成功。下游必须匹配本批UUID与成功回执，不能根据最近一次任意成功运行放行。
-
-只读采集：`python sopilot.py --out out/sopilot/capture.json`。
-离线验证：`python -m pytest tests/test_sopilot.py tests/test_rss_ingest_queue.py tests/test_rss_parser.py tests/test_rss_ingest_entrypoint.py -q`。
+运行时会保留原帖身份、完整正文和滚动六小时窗口的失败项退役语义。旧的 `sopilot-info` 入口只在切换完成前作为兼容路径；本机任务完成真实一轮入库与 Info 终筛后应停用它，避免两套采集并行。
 
 ## 快速开始
 

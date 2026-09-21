@@ -26,7 +26,7 @@ import config
 from write_journal import held_write, reconcile_held_write, settle_held_writes, archive_retired, SourceWriteJournal
 from feishu_client import CREATE_JOURNAL
 from screening_value import finite_score
-from sopilot import is_sopilot_source, tweet_id_from_key
+from sopilot import source_is_sopilot as is_sopilot_source_entry, source_uses_local_snapshot, tweet_id_from_key
 from http_safety import fetch_public_content
 from html_watch import (
     fetch_html_watch,
@@ -3131,7 +3131,7 @@ def normalize_source(record: Dict[str, Any]) -> Dict[str, Any]:
 def should_fetch(source: Dict[str, Any], now_ms: int) -> bool:
     if not source.get("enabled"):
         return False
-    if is_sopilot_source(source.get("feed_url")):
+    if is_sopilot_source_entry(source) and not source_uses_local_snapshot(source):
         return bool(source.get("sopilot_batch"))
     interval_min = config.DEFAULT_FETCH_INTERVAL_MIN
     last_fetch = source.get("last_fetch_time") or 0
@@ -4199,7 +4199,7 @@ def compute_item_key_prefetch_since_ms(
     now_ms: Optional[int] = None,
 ) -> int:
     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
-    if any(is_sopilot_source(s.get("feed_url")) for s in sources):
+    if any(is_sopilot_source_entry(source) for source in sources):
         # A newly ranked post can already be nearly six hours old.
         return max(0, now_ms - 7 * 86400 * 1000)
     cursors = []
@@ -4640,12 +4640,16 @@ def split_sources_and_queue(
         cutoff_ms = last_item_pub_time or (source.get("last_fetch_time") or 0)
         lookback_minutes = max(0, int(getattr(config, "RSS_FETCH_LOOKBACK_MINUTES", 0) or 0))
         entry_cutoff_ms = max(0, cutoff_ms - lookback_minutes * 60 * 1000) if cutoff_ms else 0
-        source_is_sopilot = is_sopilot_source(source.get("feed_url"))
+        source_is_sopilot = is_sopilot_source_entry(source)
         if source_is_sopilot:
             entry_cutoff_ms = 0  # Deduplicate the complete rolling window by original ID.
 
         entries = feed.entries or []
         if source_is_sopilot:
+            for entry in entries:
+                entry["_sopilot_complete"] = True
+                if source_uses_local_snapshot(source):
+                    entry["_sopilot_local_snapshot"] = True
             known_tweets = {tweet_id_from_key(key) for key in existing_keys} - {None}
             aliases = {entry["id"] for entry in entries
                        if tweet_id_from_key(entry.get("id")) in known_tweets}
@@ -4735,7 +4739,7 @@ def split_sources_and_queue(
                 extraction = extract_article_text(
                     entry.get("link") or "",
                     source.get("name") or source.get("feed_url"),
-                    source.get("feed_url") or "",
+                    source.get("original_feed_url") or source.get("feed_url") or "",
                     entry,
                     timeout=min(config.HTTP_TIMEOUT, 12),
                     force_fetch=source_is_aihot,
@@ -4801,7 +4805,7 @@ def split_sources_and_queue(
             extraction = extract_article_text(
                 entry.get("link") or "",
                 source.get("name") or source.get("feed_url"),
-                source.get("feed_url") or "",
+                source.get("original_feed_url") or source.get("feed_url") or "",
                 entry,
                 timeout=min(config.HTTP_TIMEOUT, 12),
                 force_fetch=source_is_aihot,
@@ -5338,14 +5342,17 @@ def _main(sopilot_receipt=None) -> int:
             )
     enabled_sources = [s for s in sources if s.get("enabled")]
     if sopilot_receipt is not None:
-        enabled_sources = [s for s in enabled_sources if is_sopilot_source(s.get("feed_url"))]
+        enabled_sources = [s for s in enabled_sources if is_sopilot_source_entry(s)]
         if len(enabled_sources) != 1:
             raise ValueError("The hourly batch requires exactly one enabled SoPilot source")
         enabled_sources[0]["sopilot_batch"] = sopilot_receipt["batch_id"]
         sopilot_receipt["source_id"] = enabled_sources[0]["record_id"]
     else:
         # The Info hourly task owns SoPilot cadence; ordinary RSS runs keep their scope.
-        enabled_sources = [s for s in enabled_sources if not is_sopilot_source(s.get("feed_url"))]
+        enabled_sources = [
+            source for source in enabled_sources
+            if not (is_sopilot_source_entry(source) and not source_uses_local_snapshot(source))
+        ]
         from source_runtime import select_ingest_lane
         enabled_sources = select_ingest_lane(enabled_sources, os.getenv("RSS_INGEST_LANE", "rss"), grok_ids)
         if os.getenv("RSS_INGEST_LANE") == "grok":

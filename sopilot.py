@@ -104,6 +104,15 @@ def is_sopilot_source(url):
             and parse_qs(parsed.query).get("range") == ["6h"])
 
 
+def source_is_sopilot(source):
+    """Keep SoPilot semantics when GitHub reads a local published snapshot."""
+    return is_sopilot_source((source or {}).get("original_feed_url") or (source or {}).get("feed_url"))
+
+
+def source_uses_local_snapshot(source):
+    return source_is_sopilot(source) and bool((source or {}).get("runtime_source_override"))
+
+
 def parse_rank_page(raw, category, page):
     chunks = []
     for match in re.finditer(r'self\.__next_f\.push\((\[.*?\])\)\s*;?\s*</script>', raw, re.S):

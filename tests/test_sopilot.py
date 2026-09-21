@@ -13,6 +13,7 @@ os.environ.setdefault("RSS_INGEST_SKIP_LOCAL_ENV", "true")
 import rss_ingest
 import sopilot
 from article_extractor import extract_article_text
+from rss_parser import fetch_feed
 
 
 def page_html(category="all", page=1, total=2, ids=("10",), long_text=False):
@@ -54,6 +55,24 @@ def test_original_line_breaks_code_and_literal_entities_reach_processing():
     assert result["method"] == "source_parser:sopilot"
     fields = rss_ingest.build_article_base_fields({"content": result["text"], "extraction": result}, "original-id")
     assert fields["full_content"] == body
+
+
+def test_local_snapshot_rss_preserves_literal_code_after_source_decoding(tmp_path):
+    feed_path = tmp_path / "sopilot.xml"
+    feed_path.write_text(
+        """<?xml version=\"1.0\"?><rss xmlns:content=\"http://purl.org/rss/1.0/modules/content/\"><channel><item>
+        <title>Maker：代码</title><link>https://x.com/maker/status/123</link><guid isPermaLink=\"true\">https://x.com/i/status/123</guid>
+        <content:encoded>print(&amp;#x27;&amp;lt;ok&amp;gt;&amp;#x27;)</content:encoded></item></channel></rss>""",
+        encoding="utf-8",
+    )
+    entry = fetch_feed(str(feed_path), 1, 1).entries[0]
+    entry["_sopilot_complete"] = True
+    entry["_sopilot_local_snapshot"] = True
+
+    result = extract_article_text(entry.link, "SoPilot", sopilot.SOURCE_URL, entry)
+
+    assert result["method"] == "source_parser:sopilot"
+    assert result["text"] == "print('<ok>')"
 
 
 def test_relevant_categories_all_pages_and_cross_rank_dedupe():
@@ -105,6 +124,42 @@ def test_old_newly_ranked_posts_over_200_reach_existing_queue(monkeypatch):
     assert all(item["entry_ts"] == old for item in queue)
     assert not rss_ingest.should_fetch({**source, "sopilot_batch": ""}, now * 1000)
     assert rss_ingest.compute_item_key_prefetch_since_ms([source], now * 1000) <= old * 1000
+
+
+def test_local_sopilot_snapshot_keeps_special_queue_and_full_content_rules(monkeypatch):
+    now = int(time.time())
+    old = now - 5 * 3600
+    source = {
+        "feed_url": "/runtime-data/feeds/sopilot.xml",
+        "original_feed_url": sopilot.SOURCE_URL,
+        "runtime_source_override": True,
+        "enabled": True,
+        "record_id": "source",
+        "last_item_pub_time": now * 1000,
+    }
+    entries = [{
+        "id": f"https://x.com/i/status/{index}",
+        "link": f"https://x.com/maker/status/{index}",
+        "title": "test",
+        "published_parsed": dt.datetime.fromtimestamp(old, dt.timezone.utc).timetuple(),
+        "content": [{"value": "print('&lt;ok&gt;')"}],
+    } for index in range(251)]
+    captured = []
+
+    def extract(_link, _name, feed_url, entry, **_kwargs):
+        captured.append((feed_url, entry.get("_sopilot_complete")))
+        return {"text": "print('<ok>')", "method": "source_parser:sopilot"}
+
+    monkeypatch.setattr(rss_ingest, "fetch_feed", lambda *args, **kwargs: SimpleNamespace(entries=entries))
+    monkeypatch.setattr(rss_ingest, "extract_article_text", extract)
+    monkeypatch.setattr(rss_ingest.config, "DEFAULT_FETCH_INTERVAL_MIN", 0)
+
+    queue, _, stats = rss_ingest.split_sources_and_queue([source], set(), "unused")
+
+    assert rss_ingest.should_fetch(source, now * 1000)
+    assert len(queue) == 251
+    assert stats["entries_fetched"] == 251
+    assert captured and set(captured) == {(sopilot.SOURCE_URL, True)}
 
 
 def test_sopilot_drops_failed_items_that_left_the_complete_rolling_window(monkeypatch):

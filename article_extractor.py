@@ -849,6 +849,8 @@ def extract_article_text(
 ) -> Dict[str, Any]:
     if is_sopilot_source(feed_url) and entry.get("_sopilot_complete") is True:
         body = entry_text_content(entry)
+        if entry.get("_sopilot_local_snapshot"):
+            body = html.unescape(body)
         return {"text": body, "method": "source_parser:sopilot", "status": "ok" if body else "empty",
                 "error": "", "content_length": len(body), "raw_excerpt_length": len(body)}
     rss_text = _clean_text(entry_text_content(entry))
