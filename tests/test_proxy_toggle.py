@@ -278,7 +278,7 @@ def test_rss_ingest_ignores_system_proxy_when_disabled(monkeypatch):
             "choices": [
                 {
                     "message": {
-                        "content": '{"action":"ingest","categories":["AI工具与自动化"],"score":8.0,"title_zh":"标题","qa":[{"question":"q1","answer":"a1"},{"question":"q2","answer":"a2"},{"question":"q3","answer":"a3"}]}'
+                        "content": '{"action":"ingest","categories":["教程方法"],"score":8.0,"title_zh":"标题","qa":[{"question":"q1","answer":"a1"},{"question":"q2","answer":"a2"},{"question":"q3","answer":"a3"}]}'
                     }
                 }
             ]

@@ -89,7 +89,7 @@ def test_validate_screen_result_requires_and_keeps_ingest_title():
     result = rss_ingest.validate_screen_result(
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "title_zh": "中文标题",
@@ -104,7 +104,7 @@ def test_validate_screen_result_requires_and_keeps_ingest_title():
         rss_ingest.validate_screen_result(
             {
                 "action": "ingest",
-                "categories": ["AI工具与自动化"],
+                "categories": ["教程方法"],
                 "score": 8.0,
                 "reason": "保留",
                 "brief_summary": "事实摘要",
@@ -140,7 +140,7 @@ def test_build_news_fields_renders_qa_summary():
         {
             "title_zh": "改写标题",
             "score": 8.0,
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "qa": [
                 {"question": "问题1", "answer": "回答1"},
                 {"question": "问题2", "answer": "回答2"},
@@ -696,7 +696,7 @@ def test_analyze_with_llm_falls_back_to_ark_after_ollama_failures(monkeypatch):
                     "choices": [{
                         "message": {
                             "content": (
-                                '{"action":"ingest","categories":["AI工具与自动化"],'
+                                '{"action":"ingest","categories":["教程方法"],'
                                 '"score":8.0,"reason":"保留","title_zh":"标题",'
                                 '"brief_summary":"OpenAI 发布新模型。",'
                                 '"keywords":[{"name":"OpenAI","type":"org"}],'
@@ -958,7 +958,7 @@ def test_analyze_with_llm_uses_gemini_model_name_for_primary_gemini_provider(mon
                             "parts": [
                                 {
                                     "text": (
-                                        '{"action":"ingest","categories":["AI工具与自动化"],'
+                                        '{"action":"ingest","categories":["教程方法"],'
                                         '"score":8.0,"reason":"保留","title_zh":"标题",'
                                         '"brief_summary":"OpenAI 发布新模型。",'
                                         '"keywords":[{"name":"OpenAI","type":"org"}],'
@@ -1012,7 +1012,7 @@ def test_analyze_with_llm_can_route_gemini_through_vertex(monkeypatch):
                             "parts": [
                                 {
                                     "text": (
-                                        '{"action":"ingest","categories":["AI工具与自动化"],'
+                                        '{"action":"ingest","categories":["教程方法"],'
                                         '"score":8.0,"reason":"保留","title_zh":"标题",'
                                         '"brief_summary":"OpenAI 发布新模型。",'
                                         '"keywords":[{"name":"OpenAI","type":"org"}],'
@@ -1085,7 +1085,7 @@ def test_analyze_article_retries_screen_when_category_invalid(monkeypatch):
         },
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "keywords": [{"name": "OpenAI", "type": "org"}],
@@ -1112,7 +1112,7 @@ def test_analyze_article_retries_screen_when_category_invalid(monkeypatch):
     )
 
     assert result["action"] == "ingest"
-    assert result["categories"] == ["AI工具与自动化"]
+    assert result["categories"] == ["教程方法"]
     assert result["_llm_meta"]["llm_request_count"] == 3
     assert calls[0] == "screen prompt"
     assert "上一轮输出未通过系统校验：invalid categories: AI产品" in calls[1]
@@ -1132,7 +1132,7 @@ def test_analyze_article_staged_keep_is_locked_and_content_retries(monkeypatch):
         },
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 4.5,
             "reason": "初筛 keep 不可推翻",
             "title_zh": "工具A新增批处理能力",
@@ -1312,7 +1312,7 @@ def test_analyze_article_retries_screen_when_keyword_type_invalid(monkeypatch):
     responses = [
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "keywords": [{"name": "OpenAI", "type": "company"}],
@@ -1321,7 +1321,7 @@ def test_analyze_article_retries_screen_when_keyword_type_invalid(monkeypatch):
         },
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "keywords": [{"name": "OpenAI", "type": "org"}],
@@ -1373,7 +1373,7 @@ def test_analyze_with_llm_routes_gemini_through_local_prompt_sections(monkeypatc
         )
         or {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "title_zh": "标题",
             "qa": qa_items(),
@@ -1399,7 +1399,7 @@ def test_run_llm_queue_counts_gemini_usage(monkeypatch):
     analyses = [
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "title_zh": "标题1",
             "qa": qa_items(),
@@ -1407,7 +1407,7 @@ def test_run_llm_queue_counts_gemini_usage(monkeypatch):
         },
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "title_zh": "标题2",
             "qa": qa_items(),
@@ -1539,7 +1539,7 @@ def test_run_llm_queue_ignores_cloudflare_vectorize_when_enabled(monkeypatch):
         "analyze_with_llm",
         lambda article, prompt_config=None: {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "title_zh": "标题",
             "qa": qa_items(),
@@ -1660,7 +1660,7 @@ def test_analyze_article_can_override_screen_provider_without_changing_summary(m
             return {
                 "action": "ingest",
                 "reason": "保留",
-                "categories": ["AI工具与自动化"],
+                "categories": ["教程方法"],
                 "score": 8.0,
                 "keywords": [{"name": "OpenAI", "type": "org"}],
                 "title_zh": "屏幕标题",
@@ -1867,7 +1867,7 @@ def test_run_llm_queue_uses_primary_provider_when_prompt_config_present_for_open
         lambda article, prompt_config=None: calls.append("llm")
         or {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "title_zh": "标题",
             "qa": qa_items(),
@@ -1948,7 +1948,7 @@ def test_run_llm_queue_dedups_before_summary(monkeypatch):
         )
         or {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "title_zh": "新标题",
@@ -2027,7 +2027,7 @@ def test_run_llm_queue_does_not_count_low_score_items_as_new(monkeypatch):
         "analyze_with_llm",
         lambda article, prompt_config=None: {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 5.5,
             "title_zh": "标题",
             "qa": qa_items(),
@@ -2087,7 +2087,7 @@ def test_run_llm_queue_staged_content_score_gate(monkeypatch, score, source):
     created = []
     analysis = {
         "action": "ingest",
-        "categories": ["AI工具与自动化"],
+        "categories": ["教程方法"],
         "score": score,
         "reason": "薄信号保留",
         "title_zh": "标题",
@@ -2155,7 +2155,7 @@ def test_run_llm_queue_retries_news_create_without_keyword_multiselect(monkeypat
         "analyze_with_llm",
         lambda article, prompt_config=None: {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "title_zh": "标题",
@@ -2222,7 +2222,7 @@ def test_run_llm_queue_adds_news_create_failure_to_failed_items(monkeypatch):
         "analyze_with_llm",
         lambda article, prompt_config=None: {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.0,
             "reason": "保留",
             "title_zh": "标题",
@@ -2496,7 +2496,7 @@ def test_run_llm_queue_persists_low_score_filtered_articles(monkeypatch):
         "analyze_with_llm",
         lambda article, prompt_config=None: {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 5.5,
             "reason": "信息增量不足，仅适合观察",
             "title_zh": "标题",
@@ -2625,7 +2625,7 @@ def test_run_llm_queue_does_not_persist_vectorize_skipped_articles(monkeypatch):
         "analyze_with_llm",
         lambda article, prompt_config=None: {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 8.1,
             "reason": "具备一定参考价值",
             "title_zh": "标题",

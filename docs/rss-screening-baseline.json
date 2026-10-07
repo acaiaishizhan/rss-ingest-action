@@ -3,7 +3,7 @@
   "final_content_min_score": 6.0,
   "sha256": {
     "docs/local-screen-triage-prompt.md": "b501bcaa0fce7d1b1c01a4b25069e7bf2a83f1bc99a7b523ec8197794e7ba97d",
-    "docs/local-screen-prompt.md": "a9dfc76d521832091e48cf31bc295cfc5faf5d1dc4c899022b3d4956dbb7248e",
+    "docs/local-screen-prompt.md": "3da0af5846aefeca0e0f61c928aa0b5115b813cefe8a893db60911a251357317",
     "docs/local-summarize-prompt.md": "22fb8765e7cc14ca51a3a73964702af979f009b9939df60f6f0bded9cf79c1e0"
   }
 }

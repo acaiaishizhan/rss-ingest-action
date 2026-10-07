@@ -33,7 +33,7 @@ def _ingest_analysis(**overrides):
     data = {
         "action": "ingest",
         "reason": "保留",
-        "categories": ["AI前沿资讯"],
+        "categories": ["热点发布"],
         "score": 8.0,
         "title_zh": "中文标题",
         "qa": [
@@ -251,7 +251,7 @@ def test_validate_screen_preserves_summary():
     result = validate_screen_result({
         "action": "ingest",
         "score": 7.5,
-        "categories": ["AI前沿资讯"],
+        "categories": ["热点发布"],
         "reason": "test",
         "keywords": [{"name": "OpenAI", "type": "org"}],
         "title_zh": "OpenAI 发布新模型",
@@ -267,7 +267,7 @@ def test_validate_screen_rejects_missing_summary():
         validate_screen_result({
             "action": "ingest",
             "score": 7.5,
-            "categories": ["AI前沿资讯"],
+            "categories": ["热点发布"],
             "reason": "test",
             "keywords": [{"name": "OpenAI", "type": "org"}],
             "title_zh": "OpenAI 发布新模型",

@@ -14,7 +14,7 @@ def _ingest_payload(**overrides):
     payload = {
         "action": "ingest",
         "reason": "保留原因",
-        "categories": ["AI前沿资讯"],
+        "categories": ["热点发布"],
         "score": 8.0,
         "keywords": [{"name": "OpenAI", "type": "org"}],
         "title_zh": "OpenAI 发布新模型",
@@ -148,7 +148,7 @@ def test_keywords_valid_ingest_passes_through():
     )
     result = validate_screen_result(payload)
     assert result["action"] == "ingest"
-    assert result["categories"] == ["AI前沿资讯"]
+    assert result["categories"] == ["热点发布"]
     assert result["score"] == 8.0
     assert result["summary"] == "OpenAI 发布新模型。"
     assert result["brief_summary"] == "OpenAI 发布新模型。"
@@ -171,15 +171,15 @@ def test_ingest_allows_denoise_contract_without_categories_or_score():
 
 
 def test_categories_reject_unknown_label():
-    payload = _ingest_payload(categories=["AI前沿资讯", "AI产品"])
+    payload = _ingest_payload(categories=["热点发布", "AI产品"])
     with pytest.raises(ValueError, match="invalid categories: AI产品"):
         validate_screen_result(payload)
 
 
 def test_categories_dedupes_and_keeps_allowed_labels():
-    payload = _ingest_payload(categories=["AI前沿资讯", "AI前沿资讯", "科技与产业趋势"])
+    payload = _ingest_payload(categories=["热点发布", "热点发布", "行业动态"])
     result = validate_screen_result(payload)
-    assert result["categories"] == ["AI前沿资讯", "科技与产业趋势"]
+    assert result["categories"] == ["热点发布", "行业动态"]
 
 
 def test_ingest_requires_summary():

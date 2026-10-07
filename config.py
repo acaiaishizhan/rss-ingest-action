@@ -119,16 +119,15 @@ NEWS_FIELD_BRIEF_SUMMARY = "摘要"
 NEWS_FIELD_KEYWORDS = "关键词"
 NEWS_FIELD_KEYWORD_RECORDS = "关键词记录"
 NEWS_FIELD_IMAGES = os.getenv("NEWS_FIELD_IMAGES", "图片")
+# 2026-10-07 AhChoi: one content-use category per item (replaces the 9 topic categories).
 NEWS_CATEGORY_OPTIONS = (
-    "AI前沿资讯",
-    "AI工具与自动化",
-    "AI实战教程",
-    "商业与变现",
-    "创作者经济",
-    "产品与增长",
-    "科技与产业趋势",
-    "宏观与国际局势",
-    "深度思考与认知",
+    "变现案例",
+    "机会情报",
+    "热点发布",
+    "实测评测",
+    "教程方法",
+    "起号与传播",
+    "行业动态",
 )
 FILTERED_FIELD_TITLE = "标题"
 FILTERED_FIELD_FILTER_METHOD = "过滤方式"

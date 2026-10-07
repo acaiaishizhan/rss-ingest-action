@@ -39,7 +39,7 @@ def test_staged_keep_cannot_be_overridden(monkeypatch):
         },
         {
             "action": "ingest",
-            "categories": ["AI工具与自动化"],
+            "categories": ["教程方法"],
             "score": 4.5,
             "reason": "初筛 keep 不可推翻",
             "title_zh": "测试标题",

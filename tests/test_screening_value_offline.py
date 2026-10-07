@@ -42,7 +42,7 @@ def load_rss_functions():
               finite_score=finite_score, validate_increment=validate_increment,
               FAILED_CATEGORIES={"解析失败", "调用失败"}, log=lambda *a: None,
               limit_prompt_text=lambda x, limit: str(x or "")[:limit])
-    ns["config"] = SimpleNamespace(NEWS_CATEGORY_OPTIONS={"AI工具与自动化", "AI实战教程"},
+    ns["config"] = SimpleNamespace(NEWS_CATEGORY_OPTIONS={"教程方法", "教程方法"},
         KEYWORD_TYPE_OPTIONS={"product", "org", "topic"}, SCREEN_VALIDATE_RETRIES=2,
         ENABLE_TRIAGE_SCORE_GATE=True, TRIAGE_MIN_SCORE=3.8,
         PROMPT_TITLE_MAX_CHARS=300, PROMPT_CONTENT_MAX_CHARS=12000)
@@ -56,7 +56,7 @@ def rss():
 
 
 def screen(kind="mechanism", score=6.0):
-    return {"action": "ingest", "increment": inc(kind), "categories": ["AI工具与自动化"],
+    return {"action": "ingest", "increment": inc(kind), "categories": ["教程方法"],
             "score": score, "reason": "具体新增", "title_zh": "标题", "summary": "事实摘要",
             "keywords": [{"name": "SARA", "type": "product"}],
             "qa": [{"question": f"问题{i}？", "answer": f"原文事实{i}。"} for i in range(3)]}

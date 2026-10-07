@@ -50,15 +50,13 @@ def test_config_defaults_and_removes_featured_settings():
     assert cfg.TEXT_DEDUP_PROVIDER == "ark"
     assert cfg.SCREEN_VALIDATE_RETRIES == 3
     assert cfg.NEWS_CATEGORY_OPTIONS == (
-        "AI前沿资讯",
-        "AI工具与自动化",
-        "AI实战教程",
-        "商业与变现",
-        "创作者经济",
-        "产品与增长",
-        "科技与产业趋势",
-        "宏观与国际局势",
-        "深度思考与认知",
+        "变现案例",
+        "机会情报",
+        "热点发布",
+        "实测评测",
+        "教程方法",
+        "起号与传播",
+        "行业动态",
     )
     assert cfg.RSS_FETCH_CONCURRENCY == 20
     assert cfg.RSS_FETCH_PER_HOST_CONCURRENCY == 4
