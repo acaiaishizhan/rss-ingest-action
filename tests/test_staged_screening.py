@@ -84,7 +84,11 @@ def test_staged_uncertain_can_pass(monkeypatch):
 
     assert result["action"] == "pass"
     assert result["_llm_meta"]["triage_verdict"] == "uncertain"
+    assert result["_llm_meta"]["filter_method"] == "终审过滤"
     assert result["_llm_meta"]["llm_request_count"] == 2
+    fields = rss_ingest.build_filtered_fields(ARTICLE, result, "k1")
+    assert fields[rss_ingest.config.FILTERED_FIELD_FILTER_METHOD] == "终审过滤"
+    assert fields[rss_ingest.config.FILTERED_FIELD_FILTER_REASON] == "纯资本/治理/规模，未命中六类救回"
 
 
 def test_staged_filter_stops_after_triage(monkeypatch):

@@ -2149,6 +2149,8 @@ def analyze_article_staged(
             attach_llm_meta(build_failed_analysis(f"content: {last_error}"), llm_request_count=request_count, **triage_meta),
             screen_provider,
         )
+    if validated_content.get("action") == "pass":
+        triage_meta["filter_method"] = "终审过滤"
     return mark_analysis_provider(
         attach_llm_meta(validated_content, llm_request_count=request_count, **triage_meta),
         screen_provider,
