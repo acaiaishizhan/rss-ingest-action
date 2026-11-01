@@ -82,6 +82,9 @@ def main():
     with (out / "run-start.json").open("x", encoding="utf-8") as handle:
         json.dump({"started_at": dt.datetime.now(dt.timezone.utc).isoformat()}, handle)
     allowed_hosts = {urlparse(url).hostname for _, url, _ in SOURCES}
+    # Current a16z.substack.com/feed redirects to this public custom domain;
+    # the unmodified publisher reader followed this route successfully (20 items).
+    allowed_hosts.add("www.a16z.news")
     request_log = []
     active = {"source": None}
 
