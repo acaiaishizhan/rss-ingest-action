@@ -1,0 +1,11 @@
+out/
+artifacts/
+data/
+logs/
+.env
+.env.*
+*.env
+auth.json
+*.key
+*.pem
+__pycache__/

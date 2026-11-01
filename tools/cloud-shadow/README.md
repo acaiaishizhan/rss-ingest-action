@@ -30,11 +30,22 @@ UTF-8 text returned by the unchanged producer HTTP function, not compressed wire
 No retry silently substitutes another route. A failed category fails the whole snapshot,
 while evidence for the other independently fetched category remains available.
 
-The workflow uses a branch-specific push event and optional dispatch, GitHub-hosted
-Ubuntu, read-only repository permission and checkout without persisted credentials.
-It has no schedule. New workflows outside the default branch run through push;
-dispatch availability and schedules require the default branch workflow. This trial
-therefore establishes one real execution, not continuous shadow operation.
+The integrated workflow uses an integration-branch push event, default-branch
+dispatch and an hourly `2 * * * *` UTC schedule, matching the local producer's
+existing :02 hourly frequency. It runs on GitHub-hosted Ubuntu with read-only
+repository permission and checkout without persisted credentials. Scheduling only
+starts after deployment to the default branch; GitHub can delay or drop scheduled
+runs. Production ownership and production triggers remain unchanged.
+
+Both probes read the same `shadow-window.json`: requests are permitted only in
+`2026-11-01T18:30:00Z <= now < 2026-11-02T18:30:00Z`. The common
+`shadow_window.py` checks each open, every redirect and the final HTTP send,
+including retries after waiting. Outside the fixed window a live capture writes
+`status: skipped`, a reason and zero requests; it creates no empty successful RSS.
+SoPilot's workflow skips replay/comparison when the live capture was skipped.
+Offline replay remains available outside the window and never uses HTTP.
+The mirror schedule is separate and selects only PromptHub and Reddit indiehackers.
+After the end, any later scheduled job only uploads its explicit skipped receipt.
 
 The write evidence includes a before/after hash audit of tracked and nonignored
 repository files outside output, and the workflow contains no publication step.

@@ -2,19 +2,26 @@ name: sopilot-cloud-shadow
 
 on:
   push:
-    branches: [codex/sopilot-cloud-shadow-20261102]
+    branches: [codex/cloud-shadow-integration-20261102]
     paths:
       - .github/workflows/sopilot-cloud-shadow.yml
       - tools/cloud-shadow/sopilot*
       - tools/cloud-shadow/tests/**
+      - tools/cloud-shadow/shadow*
   workflow_dispatch:
+  schedule:
+    - cron: '2 * * * *'
 
 permissions:
   contents: read
 
+concurrency:
+  group: sopilot-cloud-shadow-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   shadow:
-    if: github.ref == 'refs/heads/codex/sopilot-cloud-shadow-20261102'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/cloud-shadow-integration-20261102'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -30,9 +37,12 @@ jobs:
       - name: Test frozen production behavior
         run: python -m unittest discover -s tools/cloud-shadow/tests -v
       - name: Capture public HTTP input and isolated RSS
-        run: python tools/cloud-shadow/sopilot_shadow.py --output tools/cloud-shadow/out/live
+        id: capture
+        run: |
+          python tools/cloud-shadow/sopilot_shadow.py --output tools/cloud-shadow/out/live
+          python -c "import json,os; status=json.load(open('tools/cloud-shadow/out/live/summary.json'))['status']; open(os.environ['GITHUB_OUTPUT'],'a').write('capture_status='+status+'\n')"
       - name: Replay the exact frozen input without HTTP
-        if: success()
+        if: steps.capture.outputs.capture_status == 'success'
         run: |
           python tools/cloud-shadow/sopilot_shadow.py --replay tools/cloud-shadow/out/live/input --output tools/cloud-shadow/out/replay
           cmp tools/cloud-shadow/out/live/canonical-entries.json tools/cloud-shadow/out/replay/canonical-entries.json

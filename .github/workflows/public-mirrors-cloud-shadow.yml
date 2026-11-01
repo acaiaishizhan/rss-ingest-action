@@ -2,11 +2,15 @@ name: public-mirrors-cloud-shadow
 
 on:
   push:
-    branches: [codex/public-mirrors-cloud-shadow-20261102]
+    branches: [codex/cloud-shadow-integration-20261102]
     paths:
       - .github/workflows/public-mirrors-cloud-shadow.yml
       - tools/cloud-shadow/public-mirrors*
+      - tools/cloud-shadow/shadow*
+      - tools/cloud-shadow/tests/**
   workflow_dispatch:
+  schedule:
+    - cron: '5,20,35,50 * * * *'
 
 permissions:
   contents: read
@@ -17,16 +21,23 @@ concurrency:
 
 jobs:
   public-mirrors:
-    if: github.ref == 'refs/heads/codex/public-mirrors-cloud-shadow-20261102'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/cloud-shadow-integration-20261102'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RSS_INGEST_SKIP_LOCAL_ENV: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 1
+      - name: Test window, source selection and frozen behavior without network
+        run: python3 -m unittest discover -s tools/cloud-shadow/tests -v
       - name: Fetch fixed public mirrors without production writes
-        run: python3 tools/cloud-shadow/public-mirrors-shadow.py --out out/public-mirrors-cloud-shadow
+        run: >-
+          python3 tools/cloud-shadow/public-mirrors-shadow.py --out out/public-mirrors-cloud-shadow
+          --source prompthub-blog --source reddit-indiehackers-ai-revenue
       - name: Preserve successful feeds and original failures
         if: always()
         uses: actions/upload-artifact@v7

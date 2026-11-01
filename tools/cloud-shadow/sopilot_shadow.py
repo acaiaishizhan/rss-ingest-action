@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import sopilot_watch as producer
+from shadow_window import RequestGuard, RequestWindow, WindowClosed
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "out"
@@ -89,12 +90,15 @@ def run(output: Path, replay: Path | None = None):
     lock = threading.Lock()
     local = threading.local()
     original_urlopen = producer.urlopen
+    window = RequestWindow()
+    guard = RequestGuard(window, {"sopilot.net"})
+    summary["window"] = window.metadata()
 
     def audited_urlopen(*args, **kwargs):
         request = args[0]
         if request.get_method() != "GET" or urlparse(request.full_url).netloc != "sopilot.net":
             raise ValueError("Shadow network boundary only allows public SoPilot GET")
-        response = original_urlopen(*args, **kwargs)
+        response = guard.open(*args, **kwargs)
         local.status = getattr(response, "status", None)
         local.final_url = response.geturl()
         return response
@@ -103,6 +107,8 @@ def run(output: Path, replay: Path | None = None):
     try:
         if source_sha != SOURCE_SHA256:
             raise ValueError("Vendored production source fingerprint mismatch")
+        if not replay:
+            window.require_open()
         if replay:
             manifest = json.loads((replay / "manifest.json").read_text(encoding="utf-8"))
             replay_pages = {page["url"]: page for page in manifest["pages"]}
@@ -157,10 +163,14 @@ def run(output: Path, replay: Path | None = None):
                        entries=len(entries), rss_sha256=sha(payload), canonical_rss_sha256=sha(canonical_payload),
                        canonical_entries_sha256=sha((output / "canonical-entries.json").read_bytes()),
                        empty_reason=("all parsed ranking lists are empty" if capture.discovered == 0 else "all discovered tweets failed unchanged relevance filter") if not entries else None)
+    except WindowClosed as exc:
+        summary.update(status="skipped", skip_reason=str(exc))
     except Exception as exc:
         summary["errors"].append({"type": type(exc).__name__, "message": str(exc)})
     finally:
         producer.urlopen = original_urlopen
+        summary["request_audit"] = guard.events
+        summary["network_requests"] = sum(row["stage"] == "send" and row["allowed"] for row in guard.events)
         summary["pages"].sort(key=lambda p: (p["category"], p["page"]))
         manifest = {"schema_version": 1, "encoding": "decoded UTF-8 returned by production _fetch_text", "pages": summary["pages"]}
         save_json(inputs / "manifest.json", manifest)
@@ -173,7 +183,7 @@ def run(output: Path, replay: Path | None = None):
         summary["ended_at"] = now()
         save_json(output / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False))
-    return 0 if summary["status"] == "success" else 1
+    return 0 if summary["status"] in {"success", "skipped"} else 1
 
 
 def main():

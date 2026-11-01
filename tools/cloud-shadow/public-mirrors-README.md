@@ -2,6 +2,11 @@
 
 This isolated probe freezes the current publisher's ten public mirror definitions,
 HTTP reader, PromptHub conversion, XML validation and item fingerprint nodes.
+Its integrated live command permits only `prompthub-blog` and
+`reddit-indiehackers-ai-revenue`; these two are also the default selection.
+The eight failing sources are retained only in the frozen historical logic and
+cannot be selected for a new live capture. Historical ten-source artifacts remain
+replayable offline.
 It imports no production configuration, reads no credentials, fetches public HTTPS
 GETs, and writes only the requested artifact directory. It does not call Feishu,
 publish runtime snapshots, dispatch ingestion or change the production schedule.
@@ -17,8 +22,25 @@ The local first probe succeeded for nine sources. The added audit host guard
 blocked a16z's existing redirect from `a16z.substack.com/feed` to
 `www.a16z.news/feed`; this was an audit restriction, not a source HTTP error.
 The unmodified current publisher reader followed that public redirect and returned
-20 valid items. The explicit redirect allowlist now permits that host. Source URL,
-UA, timeout and retry logic remain unchanged. No production source has switched.
+20 valid items. That source is excluded from the integrated live selection, so its
+host is not granted live access. Source URLs, UA, timeout and retry logic for the
+selected sources remain unchanged. No production source has switched.
+
+The second trial, run `41332796014` on commit `620c334`, had two successful sources
+(PromptHub 50, indiehackers 25), seven Substack HTTP 403 failures and a SideProject
+failure after three HTTP 429 responses. SideProject therefore stays local.
+
+The integrated default-branch UTC schedule is `5,20,35,50 * * * *`, preserving
+the local mirror publisher frequency. Its concurrency group is separate from both
+SoPilot shadow and production ingestion. It always passes both approved source
+names explicitly; the command accepts `--source` only for these two names.
+The shared `shadow-window.json` permits live requests only from
+`2026-11-01T18:30:00Z` inclusive to `2026-11-02T18:30:00Z` exclusive.
+Common `shadow_window.py` enforces it at open, redirect and final send for each
+attempt, including retries after a wait. Outside the window summary and source
+statuses are `skipped`, item counts are null and network requests are zero. A
+window expiring during a capture preserves prior evidence and skips further
+requests; skipped sources never masquerade as successful empty feeds.
 
 Run once into a new evidence directory (a pre-existing run is never overwritten):
 
