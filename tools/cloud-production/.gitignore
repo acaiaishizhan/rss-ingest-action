@@ -1,0 +1,8 @@
+.env*
+*.key
+*.pem
+auth.json
+data/
+logs/
+out/
+__pycache__/

@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-01T18:33:50.388Z",
+  "patch": "health-owner-handoff-no-trailing-space.patch",
+  "ordinary_git_apply_check": true,
+  "actual_apply": true,
+  "replaced_single_space_context_lines": 7,
+  "trailing_whitespace_lines": [],
+  "applied_bytes_match_original_patch": true,
+  "original_patch_output_mismatches": [],
+  "applied_text_matches_modified_ignoring_line_endings": true,
+  "normalized_mismatches": [],
+  "note": "Git autocrlf produces CRLF in applied fixture; fixed and original patch outputs are byte-identical."
+}

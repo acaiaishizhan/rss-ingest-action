@@ -1,0 +1,118 @@
+name: sopilot-producer
+
+on:
+  schedule:
+    - cron: '2 * * * *'
+  workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: 'Only for recovery: original run ID containing durable pending artifact'
+        type: string
+        default: ''
+      resume_artifact_name:
+        description: 'Exact pending artifact name from that run; required with resume_run_id'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sopilot-runtime-publish
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    if: github.ref == 'refs/heads/main' && vars.SOPILOT_PRODUCER_OWNER == 'cloud'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RSS_INGEST_SKIP_LOCAL_ENV: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reject ambiguous retry and incomplete recovery request
+        env:
+          ATTEMPT: ${{ github.run_attempt }}
+          RESUME_RUN: ${{ inputs.resume_run_id }}
+          RESUME_ARTIFACT: ${{ inputs.resume_artifact_name }}
+        run: |
+          test "$ATTEMPT" = '1' || { echo 'Do not rerun capture; resume the original pending artifact in a new dispatch.'; exit 1; }
+          if [ -n "$RESUME_RUN" ] || [ -n "$RESUME_ARTIFACT" ]; then
+            test -n "$RESUME_RUN" && test -n "$RESUME_ARTIFACT"
+            [[ "$RESUME_RUN" =~ ^[0-9]+$ ]]
+            [[ "$RESUME_ARTIFACT" =~ ^sopilot-production-pending-${RESUME_RUN}-[0-9]+-(initial|reconciled)$ ]]
+          fi
+      - name: Block fresh capture behind unresolved prior publication
+        if: inputs.resume_run_id == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/cloud-production/prior_run_barrier.py --output tools/cloud-production/out/run
+      - name: Capture with unchanged collector
+        if: inputs.resume_run_id == ''
+        run: python tools/cloud-production/sopilot_producer.py capture --output tools/cloud-production/out/run
+      - name: Retrieve original durable pending, without recapture
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_run_id }}
+          name: ${{ inputs.resume_artifact_name }}
+          path: tools/cloud-production/out/run/pending
+      - name: Discard downloaded verification from an earlier invocation
+        if: inputs.resume_run_id != ''
+        run: python -c "from pathlib import Path; Path('tools/cloud-production/out/run/pending/publish-receipt.json').unlink(missing_ok=True)"
+      - name: Checkout existing private runtime with dedicated writer
+        uses: actions/checkout@v4
+        with:
+          repository: acaiaishizhan/rss-runtime-data
+          ref: main
+          path: tools/cloud-production/out/runtime
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RSS_RUNTIME_WRITER }}
+          persist-credentials: true
+      - name: Prepare only the SoPilot target
+        if: inputs.resume_run_id == ''
+        run: >-
+          python tools/cloud-production/runtime_publish.py prepare
+          --repo tools/cloud-production/out/runtime --target feeds/sopilot.xml
+          --capture tools/cloud-production/out/run/capture.json
+          --payload tools/cloud-production/out/run/sopilot.xml
+          --output tools/cloud-production/out/run/pending
+      - name: Persist pending before any push
+        uses: actions/upload-artifact@v4
+        with:
+          name: sopilot-production-pending-${{ github.run_id }}-${{ github.run_attempt }}-initial
+          path: tools/cloud-production/out/run/pending/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish or reconcile the original pending commit
+        run: >-
+          python tools/cloud-production/runtime_publish.py publish --allow-write
+          --repo tools/cloud-production/out/runtime --target feeds/sopilot.xml
+          --output tools/cloud-production/out/run/pending
+      - name: Preserve reconciled or unknown pending state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sopilot-production-pending-${{ github.run_id }}-${{ github.run_attempt }}-reconciled
+          path: tools/cloud-production/out/run/pending/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Assemble health receipt from capture and actual remote readback
+        if: always()
+        run: python tools/cloud-production/sopilot_producer.py receipt --output tools/cloud-production/out/run
+      - name: Upload health receipt including failed attempts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sopilot-production-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tools/cloud-production/out/run/receipt.json
+          if-no-files-found: error
+          retention-days: 7

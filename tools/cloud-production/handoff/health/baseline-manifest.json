@@ -1,0 +1,61 @@
+{
+  "captured_at": "2026-11-01T18:21:17.971Z",
+  "root": "F:\\coding\\solo-company",
+  "head": "327f0f59ea61c7d5609b2bc32ebdcff332553689",
+  "files": [
+    {
+      "path": "tools/info-web-runner/producer-health.mjs",
+      "sha256": "655c7f789f351cd38cda82d4f49bff6b675e2879948ea645f38f2e98b3ff069f",
+      "bytes": 5618
+    },
+    {
+      "path": "tools/info-web-runner/upstream-observations.mjs",
+      "sha256": "259c728edf405c1000c9dded34eb0378596cdc28018c7b4cfc38705fcc936200",
+      "bytes": 4394
+    },
+    {
+      "path": "tools/info-web-runner/diagnosis.mjs",
+      "sha256": "4898e0cad9909a605007ec8a50c9f9692a6763dde91f25d55a5a1f574ae5bb3f",
+      "bytes": 16178
+    },
+    {
+      "path": "tools/source-watchdog/remediate.mjs",
+      "sha256": "422b0fdeff92e7afec7bca62aa0bd0d79115c7e39b8870764a7415bc8b4b59d7",
+      "bytes": 8191
+    },
+    {
+      "path": "tools/source-watchdog/config.json",
+      "sha256": "d5e989e30218c3631f8199407d190ea26a29bbd5976dc4256e0dcd47b616facf",
+      "bytes": 2174
+    },
+    {
+      "path": "tools/source-watchdog/README.md",
+      "sha256": "904a0adb58f9ecf16f7ff436580f72bbc6ca3a256b2941289f2061ccec8df3bd",
+      "bytes": 17278
+    },
+    {
+      "path": "tools/content-workbench/src/server/sources/health/upstream.mjs",
+      "sha256": "91220d2aef17c79d9f47a1b083a0959c35be9e196add03216f5109ded120ef30",
+      "bytes": 4998
+    },
+    {
+      "path": "tools/content-workbench/src/server/sources/health/index.mjs",
+      "sha256": "e74169b19a0dd4622749a1e4494d6fb56e1e3db2715c04a2b88349c89c3df510",
+      "bytes": 13035
+    },
+    {
+      "path": "tools/source-watchdog/audit.mjs",
+      "sha256": "3f5025707114f78fe57846d5aa0fb89e3b9d72b82dda4a379ad57ade7b196c84",
+      "bytes": 8960
+    },
+    {
+      "path": "tools/content-workbench/adapters/tasks.json",
+      "sha256": "59b1df99ac515e0c2cc5b2b33fe06895736e85a3fb290e2e207ed17de0f0afd5",
+      "bytes": 2142
+    }
+  ],
+  "proposed_new_files": [
+    "tools/info-web-runner/sopilot-owner.mjs",
+    "tools/info-web-runner/test-sopilot-owner.mjs"
+  ]
+}

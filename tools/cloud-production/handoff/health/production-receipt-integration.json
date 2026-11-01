@@ -1,0 +1,6 @@
+{
+  "at": "2026-11-01T18:27:22.064Z",
+  "fixture": "temp/cloud-migration-20261102/sopilot-production/receipt-contract/receipt.json",
+  "verified": true,
+  "scope": "offline producer capture + bare-remote publisher receipt integration; run metadata is fixture-derived, NOT a real GitHub production run"
+}

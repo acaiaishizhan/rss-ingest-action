@@ -1,0 +1,23 @@
+--- a/tools/local_feed_publisher.py
++++ b/tools/local_feed_publisher.py
+@@ -231,12 +231,6 @@
+                     soft_fail=True,
+                 ),
+                 *grok_sources,
+-                SourceSpec(
+-                    "sopilot",
+-                    _path_as_file_uri(sopilot_snapshot_path()),
+-                    "feeds/sopilot.xml",
+-                    soft_fail=True,
+-                ),
+                 *substack_sources,
+                 *reddit_sources,
+                 SourceSpec(
+@@ -251,7 +245,6 @@
+                 Path("/mnt/f/coding/we-mp-rss-recovery/data/db.db"),
+                 Path("/mnt/f/coding/we-mp-rss-recovery/data/db.db-wal"),
+                 *grok_feed_paths,
+-                sopilot_snapshot_path(),
+                 keyword_snapshot,
+             ),
+             poll_seconds=max(1.0, float(os.getenv("LOCAL_FEED_PUBLISHER_POLL_SECONDS", "5"))),

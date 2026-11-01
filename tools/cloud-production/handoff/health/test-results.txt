@@ -1,0 +1,61 @@
+(node:57084) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./temp/cloud-migration-20261102/sopilot-production/health-diff/offline-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ zero successful capture plus confirmed/unchanged remote blob is healthy (1.9681ms)
+✔ reject shadow, metadata mismatch, parse error, missing page and unverified blob (0.455ms)
+✔ failed latest run preserves only verified CLOUD prior success (0.2451ms)
+✔ cloud ownership never inherits local health; unknown crosses original 2h threshold (7.7564ms)
+✔ verified cache is used then becomes stale at existing 2h limit (15.9946ms)
+✔ remediation refuses local cloud task before querying scheduler, other lane unchanged (0.3938ms)
+✔ workbench disabled local cloud task is expected, Ready is owner conflict (2.0938ms)
+✔ read-only observer fetches exact receipt for original run and never dispatches (3.1545ms)
+✔ producer health uses cloud owner and persists capture+publish observation independently (5.5655ms)
+✔ missing or corrupt owner config and missing owner with cloud cache refuse local recovery (2.1541ms)
+(node:49832) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./temp/cloud-migration-20261102/sopilot-production/health-diff/offline-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ upstream thresholds use last success and current observation, not content age (21.7529ms)
+✔ four hours of verified empty rounds require distinct successful zero-count rounds (0.3278ms)
+✔ an upstream failure turns the Info workflow red despite an accepted empty run (46.7393ms)
+(node:48632) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./temp/cloud-migration-20261102/sopilot-production/health-diff/offline-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ cloud observation keeps last success and ignores queue cancellations (1.4523ms)
+✔ failed RSS observation cannot suppress Grok or overwrite Info state (8.2671ms)
+✔ producer inspection writes failure evidence without calling the old notification bridge (3.458ms)
+(node:54944) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./temp/cloud-migration-20261102/sopilot-production/health-diff/offline-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Grok due=[] is healthy when the latest due topic succeeded (5.3268ms)
+✔ SoPilot observation requires a successful task and current feed/log evidence (2.0958ms)
+✔ Grok retirement totals remain visible after success and circuit breaker survives other topics and empty rounds (3.2011ms)
+(node:50980) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./temp/cloud-migration-20261102/sopilot-production/health-diff/offline-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a concurrent commit outside production scope is listed but never blamed on the Agent (788.5014ms)
+✔ a concurrent commit explaining a production file change is separate from suspected drift (816.2512ms)
+✔ unexplained production changes report concrete added, modified and deleted paths (581.4531ms)
+✔ release version content and task definitions remain protected (530.8542ms)
+✔ task export failures preserve unavailable evidence without hashing a placeholder (0.3744ms)
+✔ legacy MISSING hash and unreadable task exports cannot prove task drift (0.3428ms)
+(node:35784) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./temp/cloud-migration-20261102/sopilot-production/health-diff/offline-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ runtime repair scope is impact-based, and replay without an event remains read-only (0.9967ms)
+✔ dry-run CLI keeps its action without an event ID (0.835ms)
+✔ only three exact actions and pipeline tasks are accepted (0.7059ms)
+✔ task already running is refused, and dry-run never executes (3.2936ms)
+✔ reservation refuses live observer and existing target (1.4502ms)
+✔ same event action and global cooldown permit only one attempt (9.1846ms)
+✔ historical job evidence stays inside an injected fixture root (1.8726ms)
+✔ Terra failure falls back to Sol with configured high effort (0.6565ms)
+✔ audit detects protected drift and notification starts with out-of-bounds fact (21.9636ms)
+✔ Info diagnosis carries batch timing, completed count and pickup tail (3.4969ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2846.6459

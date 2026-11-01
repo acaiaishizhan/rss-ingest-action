@@ -1,0 +1,7 @@
+{
+  "at": "2026-11-01T18:29:46.898Z",
+  "patch_apply_check": true,
+  "patch_applied_only_in_isolated_fixture": "F:\\coding\\solo-company\\temp\\cloud-migration-20261102\\sopilot-production\\health-diff\\apply-check-replayable",
+  "main_tree_baseline_drift": [],
+  "proposed_test_file": "tools/info-web-runner/test-sopilot-owner.mjs"
+}

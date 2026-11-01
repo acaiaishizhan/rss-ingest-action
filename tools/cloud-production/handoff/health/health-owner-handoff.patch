@@ -1,0 +1,326 @@
+diff --git a/tools/content-workbench/src/server/sources/health/index.mjs b/tools/content-workbench/src/server/sources/health/index.mjs
+index 52a2c215..ee75a1d0 100644
+--- a/tools/content-workbench/src/server/sources/health/index.mjs
++++ b/tools/content-workbench/src/server/sources/health/index.mjs
+@@ -1,3 +1,5 @@
++import { sopilotOwner, localSopilotAllowed } from '../../../../../info-web-runner/sopilot-owner.mjs';
++import { readUpstream } from './upstream.mjs';
+ import { readFileSync } from 'node:fs';
+ import { join } from 'node:path';
+ import { safeDir, safePath, openSafe, readJson, sourceError } from '../files.mjs';
+@@ -16,6 +18,12 @@ export const TASK_ALLOWLIST=Object.freeze(definitions);
+ const INFO_FILES=[['health.json','Info 执行器'],['sopilot-health.json','SoPilot 摄取'],['rss-health.json','RSS 摄取'],['grok-health.json','Grok 摄取'],['rss-publisher-health.json','RSS 本地发布'],['grok-publisher-health.json','Grok 本地发布'],['grok-watch-health.json','Grok 采集观测']];
+ export class HealthSource {
+   constructor(config,creator,{run=readProcess,platform=process.platform,infoSource=new InfoSource(config),videoSource=new HotVideoSource(config),browserProbe=productionBrowser}={}) {this.config=config;this.creator=creator;this.infoSource=infoSource;this.videoSource=videoSource;this.browserProbe=config.health?.browserProbe||browserProbe;this.run=run;this.platform=platform;this.pending=null;this.cached=null;}
++  ownerTaskCard(def,row,observedAt){
++    const card=taskCard(def,row,observedAt);
++    if(def.name!=='sopilot-watch-hourly'||localSopilotAllowed(sopilotOwner(join(this.config.health.infoRunnerRoot,'.data'))))return card;
++    const disabled=row?.state==='Disabled';
++    return {...card,state:disabled?'success':row?'failed':'unknown',lastSuccessAt:null,summary:disabled?'本机 SoPilot 已按云 owner 停用；采集和发布健康见生产云回执。':row?'SoPilot 已归云 owner，但本机任务未停用；须统一交接，勿恢复本机任务。':'云 owner 下尚未核实本机任务停用；云健康独立显示。',owner:'cloud'};
++  }
+   async tasks() {
+     if(!this.config.health.taskProbe||this.platform!=='win32')return {observedAt:new Date().toISOString(),tasks:[],error:{code:'TASKS_UNAVAILABLE',message:this.platform!=='win32'?'任务状态需在 Windows 本机读取。':'任务观测在配置中关闭。'}};
+     try {
+@@ -27,6 +35,10 @@ export class HealthSource {
+   }
+   async info() {
+     const cards=await Promise.all(INFO_FILES.map(async([file,label])=>{
++      if(file==='sopilot-health.json'&&!localSopilotAllowed(sopilotOwner(join(this.config.health.infoRunnerRoot,'.data')))){
++        const row=readUpstream(this.config).find(x=>x.id==='sopilot');
++        return evidence(file,'SoPilot 云端采集与发布',row?.state||'unknown',row?.checkedAt,row?.summary||'云端回执待核实',{lastSuccessAt:row?.lastSuccessAt,sourceFile:'sopilot-cloud-receipts.json'});
++      }
+       try {const r=await readJson(this.config.health.infoRunnerRoot,['.data',file],2*1024*1024);return {...infoHealthCard(file,label,r.value),sourceFile:file};}
+       catch(e){return evidence(file,label,'unknown',null,'此环节运行依据暂时无法读取。',{error:sourceError(e),sourceFile:file});}
+     }));
+@@ -131,6 +143,6 @@ export class HealthSource {
+     const creator=[evidence('creator-read','离线快照读取',read.state,read.observedAt,read.state==='success'?'已有作品快照可读；这不是一次新采集。':'已有快照本次未能读取。',{error:read.error??null}),
+       evidence('creator-age','最近有效采集快照','unknown',read.capturedAt,'按需采集，没有定时 SLA；资料较旧不判为任务失败。',{coverage:read.coverage??null,snapshotId:read.snapshotId??null,onDemand:true}),
+       evidence('creator-connection','采集连接状态',status.state,status.observedAt,status.message||'连接状态未确认。',{error:status.error??null,reportedState:status.reportedState??null})];
+-    return {observedAt,groups:[{id:'info',label:'资讯',cards:infos},{id:'hotvideo',label:'Hot Video',cards:hot},{id:'creator',label:'我的作品数据',cards:creator}].map(g=>({...g,cards:g.cards.map(c=>annotateAge(c,observedAt,g.id==='creator'?null:this.config.health.staleAfterMinutes)),tasks:TASK_ALLOWLIST.filter(d=>d.group===g.id).map(d=>taskCard(d,tasks.tasks.find(t=>t.name===d.name&&t.path===d.path),tasks.observedAt||observedAt))})),diagnostics:{taskError:tasks.error??null,logs:{...logs,cards:undefined},staleAfterMinutes:this.config.health.staleAfterMinutes,excluded:'停用的 cloud、人文、晚间 YouTube 刷新和旧 Info WSL 流程不在监测白名单；不会恢复。'}};
++    return {observedAt,groups:[{id:'info',label:'资讯',cards:infos},{id:'hotvideo',label:'Hot Video',cards:hot},{id:'creator',label:'我的作品数据',cards:creator}].map(g=>({...g,cards:g.cards.map(c=>annotateAge(c,observedAt,g.id==='creator'?null:this.config.health.staleAfterMinutes)),tasks:TASK_ALLOWLIST.filter(d=>d.group===g.id).map(d=>this.ownerTaskCard(d,tasks.tasks.find(t=>t.name===d.name&&t.path===d.path),tasks.observedAt||observedAt))})),diagnostics:{taskError:tasks.error??null,logs:{...logs,cards:undefined},staleAfterMinutes:this.config.health.staleAfterMinutes,excluded:'停用的 cloud、人文、晚间 YouTube 刷新和旧 Info WSL 流程不在监测白名单；不会恢复。'}};
+   }
+ }
+diff --git a/tools/content-workbench/src/server/sources/health/upstream.mjs b/tools/content-workbench/src/server/sources/health/upstream.mjs
+index aff84e14..20b4e54f 100644
+--- a/tools/content-workbench/src/server/sources/health/upstream.mjs
++++ b/tools/content-workbench/src/server/sources/health/upstream.mjs
+@@ -1,4 +1,5 @@
+ import fs from 'node:fs';
++import { sopilotOwner, localSopilotAllowed, sopilotCloudSnapshot } from '../../../../../info-web-runner/sopilot-owner.mjs';
+ import { stat as asyncStat } from 'node:fs/promises';
+ import path from 'node:path';
+ import { grokWatchSnapshot, sopilotSnapshot } from '../../../../../info-web-runner/upstream-observations.mjs';
+@@ -23,8 +24,11 @@ export function readUpstream(config,{now=Date.now(),settings=defaults}={}){
+   return lanes.map(([id,label])=>{
+     const thresholdHours=settings.upstreamThresholdHours?.[id];
+     let observation=json(path.join(root,id+'-observation.json'));
+-    const health=json(path.join(root,id+'-health.json'));
+-    if(id==='sopilot'||id==='grok-watch'){
++    let health=json(path.join(root,id+'-health.json'));
++    const owner=id==='sopilot'?sopilotOwner(root):null;
++    const cloud=id==='sopilot'&&!localSopilotAllowed(owner);
++    if(cloud){observation=sopilotCloudSnapshot({dataDir:root,now,owner});health=null;}
++    if(!cloud&&(id==='sopilot'||id==='grok-watch')){
+       const live=id==='sopilot'?sopilotSnapshot({root:producerRoot}):grokWatchSnapshot({root:producerRoot});
+       if(live.checked_at)observation=live;
+     }
+@@ -35,18 +39,20 @@ export function readUpstream(config,{now=Date.now(),settings=defaults}={}){
+     const checkAgeHours=checkedAt?(now-Date.parse(checkedAt))/3600000:null;
+     const healthIsNewest=healthAt&&(!observedAt||Date.parse(healthAt)>=Date.parse(observedAt));
+     const reported=healthIsNewest?health.status:observation?.status||health?.status;
+-    const consecutiveFailures=healthIsNewest?Number(health?.consecutive_failures)||0:observation?.status==='needs_attention'?Math.max(1,Number(health?.consecutive_failures)||0):Number(health?.consecutive_failures)||0;
+-    const timeout=typeof thresholdHours==='number'&&(ageHours!==null&&ageHours>thresholdHours||checkAgeHours!==null&&checkAgeHours>thresholdHours);
++    const consecutiveFailures=healthIsNewest?Number(health?.consecutive_failures)||0:observation?.status==='needs_attention'?Math.max(1,Number(observation?.consecutive_failures)||Number(health?.consecutive_failures)||0):Number(health?.consecutive_failures)||0;
++    const noCloudSuccess=cloud&&!lastSuccessAt&&timestamp(observation?.expected_since)&&(now-Date.parse(observation.expected_since))/3600000>thresholdHours;
++    const timeout=typeof thresholdHours==='number'&&(noCloudSuccess||ageHours!==null&&ageHours>thresholdHours||checkAgeHours!==null&&checkAgeHours>thresholdHours);
+     const state=timeout?'timeout':reported==='needs_attention'||reported==='paused'?(consecutiveFailures>=2?'failed':'warning'):reported==='completed'&&lastSuccessAt?'success':'unknown';
+     const summary=state==='failed'?`失败：连续 ${consecutiveFailures} 次；${reported==='paused'?'任务停用':observation?.error||health?.error||'最近轮次未成功'}`:state==='warning'?`警告：本轮失败 ${consecutiveFailures} 次，仍在预期周期内`:state==='timeout'?`超时：超过 ${thresholdHours} 小时没有成功或检查回执`:state==='success'?`正常；最近成功 ${localTime(lastSuccessAt)}`:'依据不足';
+     return {id,label,state,summary,lastSuccessAt,checkedAt,thresholdHours,ageHours,consecutiveFailures,reportedStatus:reported||null,
+-      lastDueAt:observation?.last_due?.at||null,lastDueState:observation?.last_due?.status||null,sourceFile:id+'-observation.json'};
++      lastDueAt:observation?.last_due?.at||null,lastDueState:observation?.last_due?.status||null,sourceFile:cloud?'sopilot-cloud-receipts.json':id+'-observation.json'};
+   });
+ }
+ export async function upstreamEvidenceSignature(config){
+   if(!config?.health?.infoRunnerRoot)return '';
+   const root=path.join(config.health.infoRunnerRoot,'.data');
+-  const files=lanes.flatMap(([id])=>[path.join(root,id+'-health.json'),path.join(root,id+'-observation.json')]);
++  const files=[path.join(root,'producer-monitor-config.json'),path.join(root,'sopilot-cloud-receipts.json')];
++  files.push(...lanes.flatMap(([id])=>[path.join(root,id+'-health.json'),path.join(root,id+'-observation.json')]));
+   const producerRoot=path.resolve(config.health.infoRunnerRoot,'../../..','rss-ingest-local');
+   files.push(path.join(producerRoot,'.cache','task-alerts','sopilot-watch-hourly.health.json'),path.join(producerRoot,'data','sopilot-feed.xml'),path.join(producerRoot,'out','sopilot-watch.log'),path.join(producerRoot,'.cache','task-alerts','grok-watch-hourly.health.json'),path.join(producerRoot,'grok_watch_runs.log'));
+   return (await Promise.all(files.map(async file=>{try{const stat=await asyncStat(file);return file+':'+stat.size+':'+stat.mtimeMs;}catch{return file+':missing';}}))).join('|');
+diff --git a/tools/info-web-runner/diagnosis.mjs b/tools/info-web-runner/diagnosis.mjs
+index b1e5a70f..6b00b8b6 100644
+--- a/tools/info-web-runner/diagnosis.mjs
++++ b/tools/info-web-runner/diagnosis.mjs
+@@ -2,6 +2,7 @@ import fs from 'node:fs';
+ import path from 'node:path';
+ import os from 'node:os';
+ import { fileURLToPath } from 'node:url';
++import { sopilotOwner, localSopilotAllowed, sopilotCloudSnapshot } from './sopilot-owner.mjs';
+ import { runProcess } from './runtime.mjs';
+ const here=path.dirname(fileURLToPath(import.meta.url)),workspace=path.resolve(here,'../..');
+ const wslRoot=path.posix.join('/mnt',workspace[0].toLowerCase(),workspace.slice(3).replaceAll('\\','/'));
+@@ -51,7 +52,8 @@ export function diagnosisEvidence(source){
+     add(lane+'-observation.json',read(path.join(data,lane+'-observation.json')));
+     add(lane+'-health.json',read(path.join(data,lane+'-health.json')));
+     if(lane==='grok-watch'){add('grok-watch-hourly.health.json',read(path.join(local,'.cache','task-alerts','grok-watch-hourly.health.json')));add('grok_watch_runs.log',read(path.join(local,'grok_watch_runs.log')));}
+-    if(lane==='sopilot'){add('sopilot-watch-hourly.health.json',read(path.join(local,'.cache','task-alerts','sopilot-watch-hourly.health.json')));add('sopilot-watch.log',read(path.join(local,'out','sopilot-watch.log')));try{add('sopilot-feed.xml timestamp',fs.statSync(path.join(local,'data','sopilot-feed.xml')).mtime.toISOString());}catch{add('sopilot-feed.xml timestamp','文件不可读');}}
++    if(lane==='sopilot'&&!localSopilotAllowed(sopilotOwner(data))){add('SoPilot owner',JSON.stringify(sopilotOwner(data)));add('verified production cloud snapshot',JSON.stringify(sopilotCloudSnapshot({dataDir:data})));add('production cloud receipts',read(path.join(data,'sopilot-cloud-receipts.json')));}
++    if(lane==='sopilot'&&localSopilotAllowed(sopilotOwner(data))){add('sopilot-watch-hourly.health.json',read(path.join(local,'.cache','task-alerts','sopilot-watch-hourly.health.json')));add('sopilot-watch.log',read(path.join(local,'out','sopilot-watch.log')));try{add('sopilot-feed.xml timestamp',fs.statSync(path.join(local,'data','sopilot-feed.xml')).mtime.toISOString());}catch{add('sopilot-feed.xml timestamp','文件不可读');}}
+   }else if(source==='browser'){
+     const state=path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),'AppData','Local'),'gpt-browser','state');
+     add('chrome-session.json',read(path.join(state,'chrome-session.json')));
+@@ -90,7 +92,9 @@ Info 未核实轮次只使用 tools/info-web-runner/resume-apply.mjs <已有批
+
+ Info 现行计划任务是 Info-Paced56Pro-Hourly（每小时只处理一批）；Info-LunaSupervisor-Hourly 已废弃，不得启用、重跑或恢复。last-run.json 报 PRO_TASK_NOT_STARTED 或 .data/paced-recovery/state.json 的 phase 为 pro_task_unavailable，表示网页 Pro 暂时不开 Pro 任务、批次已退回，下个整点自动重试；这是预期等待，不要重跑任务、启用其他任务或切换模型。
+
+-系统地图：RSS/Grok/SoPilot 本地采集 → Grok/RSS 发布 → 云端 rss/grok 入池 → Info 终筛 → 工作台。采集与发布观测在 tools/info-web-runner/.data/*-health.json 和 *-observation.json；Info 轮次在 tools/info-web-runner/.data/supervisor/<job>/state.json、last-run.json、runner-*.log；视频轮次在 hotvideo/logs/last-run-<source>.json 与 hotvideo/logs/runs/；浏览器状态在 LOCALAPPDATA/gpt-browser/state/chrome-session.json 和 agent-profile-logon.log。任务表在 tools/content-workbench/adapters/tasks.json。固定生产版本在相邻 releases/production.json。每轮开跑前 tools/ensure-agent-browser.mjs 会自动确保浏览器；抖音直链失败顺延下轮；Info 终筛由代码循环有限重试，空轮通过验收正常；Grok due=[] 是话题轮换的正常空轮。
++SoPilot 所有权以 tools/info-web-runner/.data/producer-monitor-config.json 的 sopilot.owner 为准；显式 cloud 时只核 sopilot-producer.yml 原 run 与生产 capture+publish 回执，shadow 和 action success 均不证明发布。此时 sopilot-watch-hourly 停用是正常迁云状态，禁止启用、重跑、恢复本地 SoPilot 或用旧本地 feed/log 宣称恢复；未知 push/dispatch 只查原 run，不新 dispatch。配置未知时不启动本地任务。
++
++系统地图：SoPilot 按上述 owner 执行；RSS/Grok 本地采集 → Grok/RSS 发布 → 云端 rss/grok 入池 → Info 终筛 → 工作台。采集与发布观测在 tools/info-web-runner/.data/*-health.json 和 *-observation.json；Info 轮次在 tools/info-web-runner/.data/supervisor/<job>/state.json、last-run.json、runner-*.log；视频轮次在 hotvideo/logs/last-run-<source>.json 与 hotvideo/logs/runs/；浏览器状态在 LOCALAPPDATA/gpt-browser/state/chrome-session.json 和 agent-profile-logon.log。任务表在 tools/content-workbench/adapters/tasks.json。固定生产版本在相邻 releases/production.json。每轮开跑前 tools/ensure-agent-browser.mjs 会自动确保浏览器；抖音直链失败顺延下轮；Info 终筛由代码循环有限重试，空轮通过验收正常；Grok due=[] 是话题轮换的正常空轮。
+
+ ${remediationDryRun?'这是历史演练：仅只读调查并预演，所有恢复入口必须带 --dry-run，不得直接执行运行恢复。':eventId?'当前事件 ID：'+eventId+'。确认满足边界后直接修复；使用 remediate.mjs 时带 --event '+eventId+'。执行后读取实际健康与任务结果复核，命令退出或任务启动成功不等于已恢复。':'没有当前事件 ID；只诊断和建议，不执行修复。'}
+
+diff --git a/tools/info-web-runner/producer-health.mjs b/tools/info-web-runner/producer-health.mjs
+index 12696acc..ac397f5f 100644
+--- a/tools/info-web-runner/producer-health.mjs
++++ b/tools/info-web-runner/producer-health.mjs
+@@ -1,6 +1,7 @@
+ import fs from "node:fs";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
++import { sopilotOwner, localSopilotAllowed, observeSopilotCloud } from "./sopilot-owner.mjs";
+ import { recordHealth } from "./health.mjs";
+ import { grokWatchSnapshot, sopilotSnapshot } from "./upstream-observations.mjs";
+ import { runWatchdog } from "../source-watchdog/watchdog.mjs";
+@@ -45,7 +46,8 @@ export async function inspectProducers({ dataDir = stateDir, execute, now = Date
+       } else if (lane === "grok-watch") {
+         report = grokWatchSnapshot({root: path.resolve(workspace, "../rss-ingest-local"), now: now()});
+       } else if (lane === "sopilot") {
+-        report = sopilotSnapshot({root: path.resolve(workspace, "../rss-ingest-local"), now: now()});
++        const owner = sopilotOwner(dataDir);
++        report = localSopilotAllowed(owner) ? sopilotSnapshot({root: path.resolve(workspace, "../rss-ingest-local"), now: now()}) : await observeSopilotCloud({dataDir, execute, now: now(), owner});
+       } else {
+         const result = await execute("gh", ["run", "list", "--repo", repo, "--workflow", config[lane].workflow,
+           "--limit", "30", "--json", "databaseId,status,conclusion,createdAt,updatedAt,url"]);
+diff --git a/tools/info-web-runner/sopilot-owner.mjs b/tools/info-web-runner/sopilot-owner.mjs
+new file mode 100644
+index 00000000..862e0375
+--- /dev/null
++++ b/tools/info-web-runner/sopilot-owner.mjs
+@@ -0,0 +1,74 @@
++import fs from 'node:fs';
++import path from 'node:path';
++import {fileURLToPath} from 'node:url';
++const here=path.dirname(fileURLToPath(import.meta.url));
++const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return null;}};
++const iso=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?new Date(value).toISOString():null;
++const sha=value=>typeof value==='string'&&/^[a-f0-9]{40}$/i.test(value);
++const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/i.test(value);
++export const SOPILOT_REPOSITORY='acaiaishizhan/rss-ingest-action';
++export const SOPILOT_WORKFLOW='sopilot-producer.yml';
++export const SOPILOT_SOURCE_SHA256='1c5577a96731a3539285e98e6e689d8f10ee39b7edbf409eff4ddbd8ae123b66';
++export function sopilotOwner(dataDir=path.join(here,'.data')){
++  const config=read(path.join(dataDir,'producer-monitor-config.json'));
++  if(!config||Array.isArray(config)||typeof config!=='object')return {owner:'invalid'};
++  if(!config.sopilot?.owner){
++    const cache=read(path.join(dataDir,'sopilot-cloud-receipts.json'));
++    return {owner:cache?.schema_version===1?'invalid':'local'};
++  }
++  const lane=config.sopilot;
++  return {owner:lane.owner==='cloud'?'cloud':lane.owner==='local'?'local':'invalid',activated_at:iso(lane.activated_at),workflow:lane.workflow};
++}
++export function localSopilotAllowed(owner=sopilotOwner()){return owner.owner==='local';}
++export function verifySopilotReceipt(receipt,run,owner){
++  if(receipt?.schema_version!==1||receipt.owner!=='cloud'||receipt.mode!=='production'||receipt.source!=='sopilot'||receipt.workflow!==SOPILOT_WORKFLOW)return false;
++  if(!owner.activated_at||owner.workflow!==SOPILOT_WORKFLOW||run?.status!=='completed'||run.conclusion!=='success')return false;
++  const r=receipt.run,c=receipt.capture,p=receipt.publish;
++  if(r?.repository!==SOPILOT_REPOSITORY||String(r.id)!==String(run.databaseId)||Number(r.attempt)!==Number(run.attempt)||r.code_sha!==run.headSha||!sha(r.code_sha)||r.url!==run.url)return false;
++  if(c?.status!=='success'||!iso(c.started_at)||!iso(c.finished_at)||Date.parse(c.started_at)<Date.parse(owner.activated_at)||Date.parse(c.finished_at)<Date.parse(c.started_at))return false;
++  if(!['entries','discovered','prefiltered'].every(k=>Number.isInteger(c[k])&&c[k]>=0)||!Array.isArray(c.pages)||c.pages.length===0||c.source_sha256!==SOPILOT_SOURCE_SHA256||!digest(c.rss_sha256)||c.discovered!==c.prefiltered+c.entries)return false;
++  for(const category of ['AI','Creator']){
++    const pages=c.pages.filter(page=>page.category===category),total=pages[0]?.totalPages;
++    if(!Number.isInteger(total)||total<1||pages.length!==total)return false;
++    for(let page=1;page<=total;page++)if(!pages.some(row=>row.page===page&&row.http_success===true&&row.parse_success===true&&row.http_status>=200&&row.http_status<300&&row.totalPages===total&&digest(row.sha256)))return false;
++  }
++  if(!['confirmed','unchanged'].includes(p?.status)||p.target!=='feeds/sopilot.xml'||p.target_blob_verified!==true||!sha(p.remote_sha)||!sha(p.target_blob)||!iso(p.started_at)||!iso(p.finished_at)||Date.parse(p.finished_at)<Date.parse(c.finished_at)||Date.parse(p.finished_at)<Date.parse(p.started_at))return false;
++  return true;
++}
++export function sopilotCloudSnapshot({dataDir=path.join(here,'.data'),now=Date.now(),owner=sopilotOwner(dataDir),cache=read(path.join(dataDir,'sopilot-cloud-receipts.json'))}={}){
++  const rows=(cache?.runs||[]).filter(row=>row.run&&Date.parse(row.run.createdAt)>=Date.parse(owner.activated_at||''));
++  const latest=rows[0],verified=rows.find(row=>verifySopilotReceipt(row.receipt,row.run,owner));
++  const lastSuccess=verified?.receipt.publish.finished_at||null;
++  const base={owner:'cloud',checked_at:iso(cache?.observed_at),last_success_at:lastSuccess,expected_since:owner.activated_at||null,run_id:latest?.run.databaseId||null,run_url:latest?.run.url||null};
++  if(owner.owner!=='cloud'||!owner.activated_at||owner.workflow!==SOPILOT_WORKFLOW)return {...base,status:'unknown',error:'SoPilot cloud owner configuration is incomplete'};
++  if(!latest)return {...base,status:'unknown',error:'No production cloud capture and publish receipt since owner activation'};
++  if(latest.run.status!=='completed')return {...base,status:'pending'};
++  if(verifySopilotReceipt(latest.receipt,latest.run,owner))return {...base,status:'completed',finished_at:latest.receipt.publish.finished_at,receipt_verified:true,entries:latest.receipt.capture.entries};
++  const failed=latest.run.conclusion!=='success'||['failed','unknown','uncertain'].includes(latest.receipt?.publish?.status)||latest.receipt?.capture?.status==='failed';
++  const consecutive=rows.findIndex(row=>verifySopilotReceipt(row.receipt,row.run,owner));
++  return {...base,status:failed?'needs_attention':'unknown',failure_identity:`cloud:${latest.run.databaseId}:${latest.run.attempt}`,consecutive_failures:failed?(consecutive<0?rows.filter(r=>r.run.status==='completed').length:consecutive):0,error:latest.error||'Production capture/publish receipt failed or is not verified; inspect this original run only'};
++}
++export async function observeSopilotCloud({dataDir,execute,now=Date.now(),owner=sopilotOwner(dataDir)}){
++  if(owner.owner!=='cloud'||!owner.activated_at||owner.workflow!==SOPILOT_WORKFLOW)return sopilotCloudSnapshot({dataDir,now,owner});
++  const result=await execute('gh',['run','list','--repo',SOPILOT_REPOSITORY,'--workflow',SOPILOT_WORKFLOW,'--branch','main','--limit','30','--json','databaseId,status,conclusion,createdAt,updatedAt,url,headSha,attempt']);
++  if(result.code!==0)throw Error('GitHub production observation failed: '+result.stderr.slice(-400));
++  const old=read(path.join(dataDir,'sopilot-cloud-receipts.json'));
++  const runs=JSON.parse(result.stdout).filter(run=>Date.parse(run.createdAt)>=Date.parse(owner.activated_at||'')).map(run=>({run}));
++  for(const row of runs.slice(0,3)){
++    if(row.run.status!=='completed')continue;
++    const saved=old?.runs?.find(x=>x.run.databaseId===row.run.databaseId&&x.run.attempt===row.run.attempt&&x.run.updatedAt===row.run.updatedAt);
++    if(saved?.receipt){row.receipt=saved.receipt;continue;}
++    const directory=fs.mkdtempSync(path.join(dataDir,'sopilot-receipt-'));
++    try{
++      const artifact=`sopilot-production-receipt-${row.run.databaseId}-${row.run.attempt}`;
++      const downloaded=await execute('gh',['run','download',String(row.run.databaseId),'--repo',SOPILOT_REPOSITORY,'--name',artifact,'--dir',directory]);
++      if(downloaded.code!==0)row.error='Production receipt artifact unavailable; inspect original run';
++      else row.receipt=read(path.join(directory,'receipt.json'));
++    }finally{fs.rmSync(directory,{recursive:true,force:true});}
++  }
++  for(const row of runs.slice(3)){const saved=old?.runs?.find(x=>x.run.databaseId===row.run.databaseId&&x.run.attempt===row.run.attempt);if(saved?.receipt)row.receipt=saved.receipt;}
++  const cache={schema_version:1,observed_at:new Date(now).toISOString(),runs};
++  fs.writeFileSync(path.join(dataDir,'sopilot-cloud-receipts.json.new'),JSON.stringify(cache,null,2));
++  fs.renameSync(path.join(dataDir,'sopilot-cloud-receipts.json.new'),path.join(dataDir,'sopilot-cloud-receipts.json'));
++  return sopilotCloudSnapshot({dataDir,now,owner,cache});
++}
+diff --git a/tools/info-web-runner/test-sopilot-owner.mjs b/tools/info-web-runner/test-sopilot-owner.mjs
+new file mode 100644
+index 00000000..a26e284e
+--- /dev/null
++++ b/tools/info-web-runner/test-sopilot-owner.mjs
+@@ -0,0 +1,27 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import {sopilotOwner,verifySopilotReceipt,sopilotCloudSnapshot,observeSopilotCloud} from './sopilot-owner.mjs';
++import {readUpstream} from '../content-workbench/src/server/sources/health/upstream.mjs';
++import {preflight} from '../source-watchdog/remediate.mjs';
++import {HealthSource} from '../content-workbench/src/server/sources/health/index.mjs';
++const owner={owner:'cloud',activated_at:'2026-11-02T00:00:00Z',workflow:'sopilot-producer.yml'};
++const run={databaseId:123,attempt:1,status:'completed',conclusion:'success',headSha:'a'.repeat(40),url:'https://github.com/acaiaishizhan/rss-ingest-action/actions/runs/123',createdAt:'2026-11-02T01:02:00Z',updatedAt:'2026-11-02T01:03:00Z'};
++const receipt={schema_version:1,owner:'cloud',mode:'production',source:'sopilot',workflow:'sopilot-producer.yml',run:{repository:'acaiaishizhan/rss-ingest-action',id:123,attempt:1,url:run.url,code_sha:run.headSha},capture:{status:'success',started_at:run.createdAt,finished_at:'2026-11-02T01:02:10Z',entries:0,discovered:0,prefiltered:0,source_sha256:'1c5577a96731a3539285e98e6e689d8f10ee39b7edbf409eff4ddbd8ae123b66',rss_sha256:'c'.repeat(64),pages:['AI','Creator'].map(category=>({category,page:1,totalPages:1,http_success:true,parse_success:true,http_status:200,sha256:'d'.repeat(64)}))},publish:{status:'confirmed',target:'feeds/sopilot.xml',target_blob_verified:true,remote_sha:'d'.repeat(40),target_blob:'e'.repeat(40),started_at:'2026-11-02T01:02:11Z',finished_at:'2026-11-02T01:02:12Z'}};
++const cache={schema_version:1,observed_at:'2026-11-02T01:03:00Z',runs:[{run,receipt}]};
++const copy=value=>structuredClone(value);
++function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'sopilot-owner-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const runner=path.join(root,'solo-company/tools/info-web-runner'),data=path.join(runner,'.data');fs.mkdirSync(data,{recursive:true});fs.writeFileSync(path.join(data,'producer-monitor-config.json'),JSON.stringify({rss:{enabled:false},grok:{enabled:false},sopilot:{enabled:true,...owner}}));return {root,runner,data,config:{health:{infoRunnerRoot:runner}}};}
++test('zero successful capture plus confirmed/unchanged remote blob is healthy',()=>{assert.equal(verifySopilotReceipt(receipt,run,owner),true);const r=copy(receipt);r.publish.status='unchanged';assert.equal(verifySopilotReceipt(r,run,owner),true);assert.equal(sopilotCloudSnapshot({owner,cache}).status,'completed');});
++test('reject shadow, metadata mismatch, parse error, missing page and unverified blob',()=>{for(const mutate of [r=>r.mode='shadow',r=>r.workflow='sopilot-cloud-shadow.yml',r=>r.run.code_sha='f'.repeat(40),r=>r.run.attempt=2,r=>r.capture.source_sha256='b'.repeat(64),r=>r.capture.discovered=1,r=>r.capture.pages[0].parse_success=false,r=>r.capture.pages.pop(),r=>r.publish.target_blob_verified=false,r=>r.publish.target='feeds/other.xml',r=>r.publish.status='unknown']){const r=copy(receipt);mutate(r);assert.equal(verifySopilotReceipt(r,run,owner),false);}});
++test('failed latest run preserves only verified CLOUD prior success',()=>{const bad=copy(run);bad.databaseId=124;bad.conclusion='failure';const observed=sopilotCloudSnapshot({owner,cache:{...cache,runs:[{run:bad},...cache.runs]}});assert.equal(observed.status,'needs_attention');assert.equal(observed.last_success_at,receipt.publish.finished_at);assert.equal(observed.failure_identity,'cloud:124:1');});
++test('cloud ownership never inherits local health; unknown crosses original 2h threshold',t=>{const f=fixture(t);fs.writeFileSync(path.join(f.data,'sopilot-health.json'),JSON.stringify({status:'completed',last_checked_at:'2026-11-02T02:10:00Z',last_success_at:'2026-11-02T02:10:00Z'}));fs.writeFileSync(path.join(f.data,'sopilot-observation.json'),JSON.stringify({status:'completed',checked_at:'2026-11-02T02:10:00Z',finished_at:'2026-11-02T02:10:00Z'}));let row=readUpstream(f.config,{now:Date.parse('2026-11-02T01:59:00Z')}).find(x=>x.id==='sopilot');assert.equal(row.state,'unknown');assert.equal(row.lastSuccessAt,null);row=readUpstream(f.config,{now:Date.parse('2026-11-02T02:01:00Z')}).find(x=>x.id==='sopilot');assert.equal(row.thresholdHours,2);assert.equal(row.state,'timeout');});
++test('verified cache is used then becomes stale at existing 2h limit',t=>{const f=fixture(t);fs.writeFileSync(path.join(f.data,'sopilot-cloud-receipts.json'),JSON.stringify(cache));assert.equal(readUpstream(f.config,{now:Date.parse('2026-11-02T01:30:00Z')}).find(x=>x.id==='sopilot').state,'success');assert.equal(readUpstream(f.config,{now:Date.parse('2026-11-02T03:04:00Z')}).find(x=>x.id==='sopilot').state,'timeout');});
++test('remediation refuses local cloud task before querying scheduler, other lane unchanged',async()=>{let calls=0;const taskState=async()=>{calls++;return 'Ready';};const denied=await preflight('rerun-task',['sopilot-watch-hourly'],{producerOwner:owner,taskState});assert.equal(denied.allowed,false);assert.equal(calls,0);assert.equal((await preflight('rerun-task',['sopilot-watch-hourly'],{producerOwner:{owner:'local'},taskState})).allowed,true);assert.equal((await preflight('rerun-task',['grok-watch-hourly'],{producerOwner:owner,taskState})).allowed,true);});
++test('workbench disabled local cloud task is expected, Ready is owner conflict',t=>{const f=fixture(t),context={config:f.config},def={name:'sopilot-watch-hourly',label:'SoPilot',path:'\\'};assert.equal(HealthSource.prototype.ownerTaskCard.call(context,def,{state:'Disabled'},cache.observed_at).state,'success');assert.equal(HealthSource.prototype.ownerTaskCard.call(context,def,{state:'Ready',lastRun:run.updatedAt,result:0},cache.observed_at).state,'failed');});
++test('read-only observer fetches exact receipt for original run and never dispatches',async t=>{const f=fixture(t),commands=[];const result=await observeSopilotCloud({dataDir:f.data,owner,now:Date.parse(cache.observed_at),execute:async(file,args)=>{commands.push([file,...args]);if(args[1]==='list')return {code:0,stdout:JSON.stringify([run]),stderr:''};const dir=args[args.indexOf('--dir')+1];fs.writeFileSync(path.join(dir,'receipt.json'),JSON.stringify(receipt));return {code:0,stdout:'',stderr:''};}});assert.equal(result.status,'completed');assert.equal(commands.length,2);assert.equal(commands[1][2],'download');assert.ok(commands[1].includes('sopilot-production-receipt-123-1'));assert.ok(commands.every(c=>!c.includes('dispatch')&&!c.includes('rerun')));assert.deepEqual(fs.readdirSync(f.data).filter(x=>x.startsWith('sopilot-receipt-')),[]);});
++import {inspectProducers} from './producer-health.mjs';
++test('producer health uses cloud owner and persists capture+publish observation independently',async t=>{const f=fixture(t);const result=await inspectProducers({dataDir:f.data,now:()=>Date.parse(cache.observed_at),execute:async(file,args)=>{assert.equal(file,'gh');if(args[1]==='list')return {code:0,stdout:JSON.stringify([run]),stderr:''};const dir=args[args.indexOf('--dir')+1];fs.writeFileSync(path.join(dir,'receipt.json'),JSON.stringify(receipt));return {code:0,stdout:'',stderr:''};}});assert.equal(result.length,1);assert.equal(result[0].status,'fulfilled');const observation=JSON.parse(fs.readFileSync(path.join(f.data,'sopilot-observation.json')));assert.equal(observation.owner,'cloud');assert.equal(observation.receipt_verified,true);assert.equal(observation.entries,0);});
++
++test('missing or corrupt owner config and missing owner with cloud cache refuse local recovery',async t=>{const f=fixture(t),file=path.join(f.data,'producer-monitor-config.json');for(const value of [null,'{bad',JSON.stringify({rss:{enabled:true}})]){if(value===null)fs.unlinkSync(file);else fs.writeFileSync(file,value);if(value?.includes('rss'))fs.writeFileSync(path.join(f.data,'sopilot-cloud-receipts.json'),JSON.stringify(cache));const observed=sopilotOwner(f.data);assert.equal(observed.owner,'invalid');let queries=0;assert.equal((await preflight('rerun-task',['sopilot-watch-hourly'],{producerOwner:observed,taskState:async()=>{queries++;return 'Ready';}})).allowed,false);assert.equal(queries,0);}fs.writeFileSync(file,JSON.stringify({sopilot:{owner:'local'}}));assert.equal(sopilotOwner(f.data).owner,'local');});
+diff --git a/tools/source-watchdog/README.md b/tools/source-watchdog/README.md
+index f5766f87..eea1d5c2 100644
+--- a/tools/source-watchdog/README.md
++++ b/tools/source-watchdog/README.md
+@@ -30,6 +30,8 @@ node tools/source-watchdog/watchdog.mjs diagnose --source info --dry-run
+
+ 自动代码补丁支线已关闭（codeRepairEnabled=false）。当前常驻值守不调用 Info 自动代码修复；旧自动执行方案已否决，不得继续或 resume。info-repair 文件保留用于历史取证，代码修复需另开明确任务。
+
++SoPilot 所有权以 `tools/info-web-runner/.data/producer-monitor-config.json` 的 `sopilot.owner` 为准；显式 `cloud` 时只核 `sopilot-producer.yml` 原 run 与生产 capture+publish 回执，shadow 和 action success 均不证明发布。本机 `sopilot-watch-hourly` 停用是迁云正常状态，禁止启用、重跑或恢复；不得以旧本地 feed/log 覆盖云端健康。未知 push/dispatch 只查原 run，不新 dispatch；配置未知时不启动本地任务。云回执未知、失败、过期保持可见，沿用两小时阈值。
++
+ 目标是稳定运行。诊断 Agent 可自主处理归属明确、影响局部、可恢复并可验证的运行态故障，不按故障名称或固定动作清单限制，也不逐项请求授权。优先使用现有管理入口；remediate.mjs 的便捷动作不是权限全集，其他符合边界的运行恢复可使用本机工具。不得绕过已有入口对活任务、身份、未知结果或重复执行的拒绝条件。不得修改源代码、依赖/版本、生产配置、任务定义、业务规则、账号权限凭证；不得直接改删业务数据、原始内容或提交/发送/去重凭证。恢复过程中由正常业务入口产生的运行状态可写入。保留无关或仍有进展的任务与用户浏览器；未知提交/发送只复核与恢复原句柄。动作及实际结果写入诊断回执，独立健康复核确认后才认定恢复。 调用前后继续审计生产文件与配置；运行恢复报告写入同一事件，独立复核确认恢复后静默关闭。不得读取凭据正文；进程检查只取 PID 与可执行文件名，不输出完整命令行。
+
+ 2026-10-31 AhChoi 批准的唯一例外仅限 grok-watch 只读搜索：经正常入口恢复原回执明确报 original Target and URL are unavailable、无 completed 结果、冻结窗口已结束且下一调度时段已到时，可由 grok_watch.py 自动退役。原回执不删不改；退役历史持久记录 requestId、回执路径、冻结窗口、原因和时间，退役及唯一新请求身份须先原子落盘再发送。新 UUID / 新回执只搜起点不早于旧窗口终点的新窗口，缺期不补；退役身份不再恢复或重复退役，迟到结果不入库。累计和连续次数进入健康观测；连续 3 次退役且无成功后停止继续自动退役并保持报错，成功才清连续计数。其他未知错误仍只复核原句柄。诊断 Agent 只能使用正常入口观察此政策，不得手改状态、回执或绕过熔断。发布类（含 grok-publisher、push 和 dispatch）仍不重发未知操作，本例外不适用。
+diff --git a/tools/source-watchdog/audit.mjs b/tools/source-watchdog/audit.mjs
+index 6c86077b..4ab1301e 100644
+--- a/tools/source-watchdog/audit.mjs
++++ b/tools/source-watchdog/audit.mjs
+@@ -68,6 +68,12 @@ export async function auditSnapshot({config=settings,roots={solo:workspace,rss:p
+     scanFiles(roots.releases,['.'],[],{},null).then(files=>({files})).catch(error=>({error:error.message})),
+     readTasks(config.taskNames)
+   ]);
++  // Ownership changes alter recovery authority, so audit this specific non-secret runtime config despite .data exclusion.
++  if(solo.files)for(const relative of config.ownerFiles||[]){
++    if(relative!=='tools/info-web-runner/.data/producer-monitor-config.json')throw Error('Invalid owner audit path');
++    try{const bytes=await fs.readFile(path.join(roots.solo,relative));solo.files[relative]={sha256:hash(bytes),bytes:bytes.length};}
++    catch(error){solo.files[relative]={error:error.code||error.message};}
++  }
+   return {at,roots,repositories:{solo,rss},releases,tasks};
+ }
+ async function commitsBetween(root,start,end){
+diff --git a/tools/source-watchdog/config.json b/tools/source-watchdog/config.json
+index 2a810256..2ba5049a 100644
+--- a/tools/source-watchdog/config.json
++++ b/tools/source-watchdog/config.json
+@@ -40,6 +40,7 @@
+       "skills/web-access",
+       "advisory/workbench/.runtime/workbench.config.json"
+     ],
++    "ownerFiles": ["tools/info-web-runner/.data/producer-monitor-config.json"],
+     "soloGlobs": [
+       "tools/ensure-agent-browser*"
+     ],
+diff --git a/tools/source-watchdog/remediate.mjs b/tools/source-watchdog/remediate.mjs
+index e3cc5a98..11245a40 100644
+--- a/tools/source-watchdog/remediate.mjs
++++ b/tools/source-watchdog/remediate.mjs
+@@ -1,6 +1,7 @@
+ import fs from 'node:fs';
+ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
++import { localSopilotAllowed, sopilotOwner } from '../info-web-runner/sopilot-owner.mjs';
+ import { runProcess } from '../info-web-runner/runtime.mjs';
+ import { readJournal, transact, journalFile } from './events.mjs';
+ import { toolEntry, browserConfig } from '../production-release.mjs';
+@@ -25,10 +26,11 @@ export function validateAction(action,args=[]){
+   if(action==='release-dead-reservations'&&args.length===2&&/^resp_[A-Za-z0-9_-]+$/.test(args[0])&&path.isAbsolute(args[1]))return {action,args};
+   throw Error('拒绝：动作或参数不在白名单');
+ }
+-export async function preflight(action,args,{taskState=taskStatus,reservationProbe=reservation,targetsProbe=browserTargets,pidAlive=alive,profile=null,...recoveryDeps}={}){
++export async function preflight(action,args,{taskState=taskStatus,reservationProbe=reservation,targetsProbe=browserTargets,pidAlive=alive,profile=null,producerOwner=sopilotOwner(),...recoveryDeps}={}){
+   if(action==='recover-workbench')return workbenchRecoveryPreflight({pidAlive,...recoveryDeps});
+   if(action==='ensure-browser')return {allowed:true,reason:'浏览器确保脚本可执行'};
+   if(action==='rerun-task'){
++    if(args[0]==='sopilot-watch-hourly'&&!localSopilotAllowed(producerOwner))return {allowed:false,reason:'SoPilot owner is cloud or invalid; local task must not run; inspect original production cloud receipt'};
+     const state=await taskState(args[0]);return {allowed:state==='Ready',reason:state==='Ready'?'任务就绪':`任务状态 ${state}，拒绝重跑`};
+   }
+   profile ||= browserConfig();

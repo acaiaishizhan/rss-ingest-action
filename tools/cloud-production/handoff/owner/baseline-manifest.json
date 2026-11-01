@@ -1,0 +1,17 @@
+{
+  "repository_head": "127e4b6a010861b8747e5015519573df996fe527",
+  "files_sha256": {
+    "tools/local_feed_publisher.py": "9fd3b2ea4daf4f75181f9f55aaa553ab03c4a75f9ca0a19ddbdca34e534593ad",
+    "tools/build_runtime_source_map.py": "bc66df04afa2d374be2eb3d15728e2572ef34ceda875f85f86284cc1b65c6f73",
+    "tools/run_sopilot_watch_local.ps1": "79b97a9232d35ea06deded154af8ee1c080127a17e36243112acccbf52507576",
+    "tools/register_sopilot_watch_task.ps1": "0bcc77b3f15537ddb0124eec3b5efaf7a23b277ce760a62ad8159f1412fedd55",
+    "tools/run_local_feed_publisher_local.ps1": "ed2656945729a5fdd851c6d292bd05d0c2ed2c89b315c14b221ca32f979fc1ec",
+    "tools/register_local_feed_publisher_task.ps1": "7450bef54a8a9927f9a91d13715e021abfd15cef85303093fe4969fae7eb971f",
+    "rss_ingest.py": "2f52d7382ffb9a453913e75eb413ab604e5cbd0b217c722aef4a745421a9f401"
+  },
+  "pending_state": "NOT_READ",
+  "runtime_head": "NOT_QUERIED",
+  "task_state": "NOT_QUERIED",
+  "production_changes_applied": false,
+  "status_unchanged": true
+}
