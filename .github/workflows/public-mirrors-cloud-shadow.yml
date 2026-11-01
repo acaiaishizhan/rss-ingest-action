@@ -1,0 +1,37 @@
+name: public-mirrors-cloud-shadow
+
+on:
+  push:
+    branches: [codex/public-mirrors-cloud-shadow-20261102]
+    paths:
+      - .github/workflows/public-mirrors-cloud-shadow.yml
+      - tools/cloud-shadow/public-mirrors*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-mirrors-shadow-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-mirrors:
+    if: github.ref == 'refs/heads/codex/public-mirrors-cloud-shadow-20261102'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Fetch fixed public mirrors without production writes
+        run: python3 tools/cloud-shadow/public-mirrors-shadow.py --out out/public-mirrors-cloud-shadow
+      - name: Preserve successful feeds and original failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: public-mirrors-shadow-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/public-mirrors-cloud-shadow/
+          if-no-files-found: error
+          retention-days: 7
