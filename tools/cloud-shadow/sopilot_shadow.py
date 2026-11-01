@@ -26,7 +26,8 @@ def sha(data):
 
 
 def save_json(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Explicit UTF-8 bytes keep frozen fingerprints identical on Windows/Linux.
+    path.write_bytes((json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def now():

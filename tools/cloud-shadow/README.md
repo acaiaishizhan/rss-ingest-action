@@ -16,8 +16,9 @@ python tools/cloud-shadow/sopilot_shadow.py --replay tools/cloud-shadow/out/live
 
 Download the GitHub artifact and point `--replay` at its `live/input` directory to
 repeat the same comparison locally. Replay validates each frozen input SHA and
-does not make HTTP requests. Compare `canonical-entries.json` and `sopilot.xml`
-byte for byte using `canonical-sopilot.xml` for the RSS comparison. Output must be a new child of `tools/cloud-shadow/out/`.
+does not make HTTP requests. Compare `canonical-entries.json` and
+`canonical-sopilot.xml` byte for byte. JSON uses explicit UTF-8 bytes and LF newlines
+on both Windows and Linux. Output must be a new child of `tools/cloud-shadow/out/`.
 Output is ignored by the existing repository `out/` ignore rule.
 
 `summary.json` records platform, code and input fingerprints, start/end times,
@@ -40,6 +41,19 @@ repository files outside output, and the workflow contains no publication step.
 Potential credential files are never opened by that audit. The receipt's zero write
 counters describe the absent publication/Feishu/dispatch code paths; they are not an
 external audit of production systems. The artifact upload is the only remote write.
+
+For a strict comparison against the actual local production file (rather than its
+vendored copy), use the downloaded cloud artifact:
+
+```sh
+python tools/cloud-shadow/sopilot_compare.py --input <download/live/input> --cloud <download/live> --production-source <local-project/sopilot_watch.py> --output tools/cloud-shadow/out/local-compare
+```
+
+This dynamically imports the actual local file, replaces its HTTP opener with a
+rejecting stub, validates frozen HTML hashes and compares all five entry fields,
+exact canonical JSON/RSS bytes, counts, page set and source fingerprints.
+`comparison.json` records each result and the cloud run identity. It does not fetch,
+publish, dispatch or update production state.
 
 Fixtures are frozen generated inputs exercising the current production parser and
 expected renderer output: duplicates use the longest original body, relevance excludes

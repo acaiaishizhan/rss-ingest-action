@@ -16,6 +16,14 @@ import sopilot_watch as producer
 
 
 class FrozenProductionTests(unittest.TestCase):
+    def test_json_fingerprint_uses_utf8_lf_bytes_on_every_platform(self):
+        output = shadow.OUT / ("test-json-" + uuid.uuid4().hex)
+        output.mkdir(parents=True)
+        path = output / "canonical.json"
+        shadow.save_json(path, {"title": "第一行\n第二行", "id": "123"})
+        self.assertEqual(path.read_bytes(), '{\n  "id": "123",\n  "title": "第一行\\n第二行"\n}\n'.encode("utf-8"))
+        self.assertNotIn(b"\r\n", path.read_bytes())
+
     def capture(self):
         def fetch(url):
             query = parse_qs(urlparse(url).query)
