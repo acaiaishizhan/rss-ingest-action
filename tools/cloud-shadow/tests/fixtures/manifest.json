@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "pages": [
+    {
+      "url": "https://sopilot.net/zh/rank/tweets?range=6h&category=AI",
+      "file": "AI-1.html",
+      "sha256": "f9758d768751ddded4e8797e719acb9c4eff645e1aa0f1d3cbee27bfd08dda34"
+    },
+    {
+      "url": "https://sopilot.net/zh/rank/tweets?range=6h&category=Creator",
+      "file": "Creator-1.html",
+      "sha256": "a74e80a1f2e3b7220c7eceff53123a1939b756400c872fb2dfb5a60d3ee8799b"
+    }
+  ]
+}
