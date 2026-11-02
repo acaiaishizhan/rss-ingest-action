@@ -11,8 +11,6 @@ on:
         description: Durable publisher request identity
         required: false
         type: string
-  schedule:
-    - cron: "12,27,42,57 * * * *"
 
 jobs:
   ingest:
