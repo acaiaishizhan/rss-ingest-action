@@ -6,12 +6,16 @@ import datetime as dt
 import importlib.util
 import json
 import os
+import queue
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 
 SHADOW = Path(__file__).resolve().parent / "cloud-shadow"
+INRUN_DEADLINE_SECONDS = 60
 TARGETS = {
     "prompthub-blog": "feeds/public-mirror/prompthub-blog.xml",
     "reddit-indiehackers-ai-revenue": "feeds/public-mirror/reddit-indiehackers-ai-revenue.xml",
@@ -37,20 +41,34 @@ def refresh(runtime_dir, enabled, *, now=None, mirror_reader=None, sopilot_reade
     runtime = Path(runtime_dir).resolve()
     if not (runtime / "source-map.json").is_file():
         return []
+    try:
+        seconds = float(os.environ.get("INRUN_DEADLINE_SECONDS", INRUN_DEADLINE_SECONDS))
+    except ValueError:
+        seconds = INRUN_DEADLINE_SECONDS
+    deadline = time.monotonic() + max(0, seconds)
     minute = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc).minute
-    results = []
-    for name, relative in TARGETS.items():
-        if name not in selected:
-            continue
-        row = {"source": name, "status": "skipped"}
-        if name == "sopilot" and minute >= 15:
-            results.append(row)
-            continue
-        temporary = None
+    results = {name: {"source": name, "status": "timeout"} for name in TARGETS if name in selected}
+    if "sopilot" in selected and minute >= 15:
+        results["sopilot"]["status"] = "skipped"
+    active = {name for name in results if results[name]["status"] != "skipped"}
+    # Only these two fixed parent directories; no source-map or feed directory scan by ingest.
+    for parent in {runtime / Path(relative).parent for relative in TARGETS.values()}:
+        for temporary in parent.glob(".inrun-*"):
+            if temporary.is_file():
+                temporary.unlink(missing_ok=True)
+    # Initialize modules on this thread before any worker can observe sys.modules.
+    try:
+        mirrors = load_producer("public-mirrors-frozen.py") if active else None
+        producer = load_producer("sopilot_watch.py") if "sopilot" in active else None
+    except Exception as error:
+        for name in active:
+            results[name].update(status="failed", error_type=type(error).__name__)
+        return list(results.values())
+    completed = queue.Queue()
+
+    def collect(name):
         try:
-            mirrors = load_producer("public-mirrors-frozen.py")
             if name == "sopilot":
-                producer = load_producer("sopilot_watch.py")
                 capture = producer.fetch_sopilot(sopilot_reader or producer._fetch_text)
                 payload = producer.render_rss(capture)
             else:
@@ -58,22 +76,44 @@ def refresh(runtime_dir, enabled, *, now=None, mirror_reader=None, sopilot_reade
                 raw = (mirror_reader or mirrors._default_source_reader)(mirrors.SourceSpec(*source))
                 payload = mirrors.build_prompthub_blog_feed(raw, source[1]) if name == "prompthub-blog" else raw
             count = mirrors.validate_feed_bytes(payload, allow_empty=name == "sopilot")
-            target = (runtime / relative).resolve()
+            completed.put((name, payload, count, None))
+        except Exception as error:
+            completed.put((name, None, None, type(error).__name__))
+
+    for name in active:
+        threading.Thread(target=collect, args=(name,), daemon=True).start()
+    pending = set(active)
+    while pending and time.monotonic() < deadline:
+        try:
+            name, payload, count, error_type = completed.get(timeout=max(0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        if time.monotonic() >= deadline:
+            break
+        pending.remove(name)
+        row = results[name]
+        if error_type:
+            row.update(status="failed", error_type=error_type)
+            continue
+        temporary = None
+        try:
+            target = (runtime / TARGETS[name]).resolve()
             if not target.is_relative_to(runtime):
                 raise ValueError("Target outside runtime checkout")
             with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".inrun-", delete=False) as handle:
                 temporary = Path(handle.name)
                 handle.write(payload)
-            os.replace(temporary, target)
-            row.update(status="success", item_count=count)
+            # Workers only return candidates. No thread can replace a late result.
+            if time.monotonic() < deadline:
+                os.replace(temporary, target)
+                row.update(status="success", item_count=count)
         except Exception as error:
             # No exception text, URLs, runtime paths, source-map or feed bodies in public logs.
             row.update(status="failed", error_type=type(error).__name__)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
-        results.append(row)
-    return results
+    return list(results.values())
 
 
 def main(argv=None):
@@ -86,4 +126,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Skip executor/thread shutdown waits after flushed summaries, including nested SoPilot workers.
+    os._exit(main())

@@ -1,6 +1,10 @@
 import datetime as dt
 import json
+import os
 import re
+import subprocess
+import sys
+import time
 from pathlib import Path
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
@@ -134,4 +138,87 @@ def test_real_workflow_gate(lane, batch, event, preflight, outcome, enabled, exp
     assert eval(" ".join(expression.split()), {"__builtins__": {}}) is expected
     assert workflow.index("Checkout private RSS snapshots") < workflow.index("Refresh public feeds") < workflow.index("Run RSS ingest")
     assert "continue-on-error: true" in step
+    assert "timeout-minutes: 2" in step
     assert "upload-artifact" not in step
+
+
+def run_cli(runtime, reader_code):
+    root = Path(__file__).resolve().parents[1]
+    code = f"""
+import datetime as dt
+import runpy
+import socket
+import sys
+sys.path.insert(0, {str(root)!r})
+def denied(*args, **kwargs):
+    raise AssertionError('Network forbidden')
+socket.socket.connect = denied
+socket.socket.connect_ex = denied
+socket.create_connection = denied
+from tools import inrun_public_feeds as feeds
+mirrors = feeds.load_producer('public-mirrors-frozen.py')
+sopilot = feeds.load_producer('sopilot_watch.py')
+class Clock(dt.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 2, 12, 14, tzinfo=dt.timezone.utc)
+dt.datetime = Clock
+{reader_code}
+sys.argv = ['inrun_public_feeds.py', '--runtime-dir', {str(runtime)!r}]
+runpy.run_path({str(root / 'tools/inrun_public_feeds.py')!r}, run_name='__main__')
+"""
+    env = dict(os.environ, INRUN_FEEDS=",".join(feeds.TARGETS), INRUN_DEADLINE_SECONDS="1",
+               RSS_INGEST_SKIP_LOCAL_ENV="true")
+    return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=2)
+
+
+def test_cli_hard_deadline_never_writes_late_candidate(runtime):
+    for parent in {runtime / Path(target).parent for target in feeds.TARGETS.values()}:
+        (parent / ".inrun-leftover").write_bytes(b"unfinished")
+    started = time.monotonic()
+    process = run_cli(runtime, f"""
+import time
+def reader(source):
+    if source.name == 'prompthub-blog':
+        time.sleep(5)
+        return {HTML!r}
+    return {RSS!r}
+mirrors._default_source_reader = reader
+def empty(url):
+    import json
+    from urllib.parse import parse_qs, urlparse
+    category = parse_qs(urlparse(url).query)['category'][0]
+    props = {{'range':'6h','category':category,'page':1,'totalPages':1,'risingTweets':[],'hotTweets':[]}}
+    return '<script>self.__next_f.push(' + json.dumps([1, '1:' + json.dumps(props) + '\\n']) + ')</script>'
+sopilot._fetch_text = empty
+""")
+    elapsed = time.monotonic() - started
+    assert elapsed < 2
+    assert process.returncode == 0 and process.stderr == ""
+    rows = {row["source"]: row for row in map(json.loads, process.stdout.splitlines())}
+    assert rows["prompthub-blog"]["status"] == "timeout"
+    assert rows["reddit-indiehackers-ai-revenue"]["status"] == "success"
+    assert rows["sopilot"]["status"] == "success"
+    assert (runtime / feeds.TARGETS["reddit-indiehackers-ai-revenue"]).read_bytes() == RSS
+    assert (runtime / feeds.TARGETS["sopilot"]).read_bytes() != b"old"
+    time.sleep(max(0, 5.2 - (time.monotonic() - started)))
+    assert (runtime / feeds.TARGETS["prompthub-blog"]).read_bytes() == b"old"
+    assert not list(runtime.rglob(".inrun-*"))
+    print(f"deadline subprocess exited in {elapsed:.3f}s; late target unchanged after 5.2s")
+
+
+def test_cli_all_sources_fail_without_blocking_ingest(runtime):
+    process = run_cli(runtime, """
+def fail(*args):
+    raise RuntimeError('private detail must not escape')
+mirrors._default_source_reader = fail
+sopilot._fetch_text = fail
+""")
+    assert process.returncode == 0 and process.stderr == ""
+    rows = list(map(json.loads, process.stdout.splitlines()))
+    assert len(rows) == 3 and all(row["status"] == "failed" for row in rows)
+    assert "private detail" not in process.stdout
+    assert all((runtime / target).read_bytes() == b"old" for target in feeds.TARGETS.values())
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/rss-ingest.yml").read_text()
+    step = workflow.split("      - name: Refresh public feeds in runner checkout\n")[1].split("      - name:")[0]
+    assert "continue-on-error: true" in step and "timeout-minutes: 2" in step

@@ -97,6 +97,7 @@ jobs:
           inputs.sopilot_batch_id == '' &&
           (github.event_name != 'workflow_dispatch' || inputs.preflight_only != true)
         continue-on-error: true
+        timeout-minutes: 2
         env:
           INRUN_FEEDS: ${{ vars.INRUN_FEEDS }}
         run: python tools/inrun_public_feeds.py --runtime-dir "$GITHUB_WORKSPACE/runtime-data"
