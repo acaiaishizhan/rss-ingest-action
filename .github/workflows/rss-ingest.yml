@@ -36,8 +36,6 @@ on:
         required: false
         default: "0"
         type: string
-  schedule:
-    - cron: "7,22,37,52 * * * *"
 
 concurrency:
   # Scheduled RSS and dedicated SoPilot calls are independent execution lanes.
