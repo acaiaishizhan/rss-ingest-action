@@ -13,7 +13,8 @@
   - `docs/local-screen-triage-prompt.md`
   - `docs/local-screen-prompt.md`
 - `docs/local-summarize-prompt.md` 仅作为旧 fallback：screen 未输出 `qa` 时才会补跑。
-- screen先输出`keep / filter / uncertain`与信号评分；低于`TRIAGE_MIN_SCORE`的条目直接进入FILTERED。其余`keep / uncertain`都允许深筛推翻，再输出内容评分、分类和`title_zh + summary + keywords + qa`。内容评分按`FEISHU_MIN_SCORE=6.0`决定入库，至少一组QA；低于6分进入回收站，正好6分保留。
+- screen先输出`keep / filter / uncertain`与信号评分；低于`TRIAGE_MIN_SCORE`的条目直接进入FILTERED。其余`keep`在内容处理阶段不可被改为`pass`，`uncertain`按原规则终审，再输出内容评分、分类和`title_zh + summary + keywords + qa`。内容评分按`FEISHU_MIN_SCORE=6.0`决定入库，至少3组QA；低于6分进入回收站，正好6分保留。
+- 内容分析沿用现有`SCREEN_VALIDATE_RETRIES`校验重试；仅在耗尽时最后错误为`qa must contain at least 3 items`，才转入现有FILTERED路径，记录尝试次数、最后QA组数与原因。重试成功仍可正常入池；其他字段校验及API/JSON失败保持原行为。FILTERED处理成功后清除该条重试记录，不因该条QA不足单独拖红整轮；过滤表写入失败仍按原机制保留重试。
 - screen 阶段同时输出 `keywords: [{name, type}]`，写入新闻表和过滤表的 `关键词` 多选字段，并可通过 `关键词记录` 关联到 KEYWORD 表做归一化。
 - KEYWORD 表支持脚本同步 `NEWS次数`、`FILTERED次数`、`最后出现`、`热度样本`；这些是快照字段，不是实时趋势。
 - `merge_keywords.py` 支持关键词合并 fixture 测试、真实候选 dry-run、核心计数字段同步，以及把别名发现结果批量追加到 KEYWORD「归一项」。

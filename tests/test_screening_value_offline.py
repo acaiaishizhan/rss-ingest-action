@@ -35,8 +35,9 @@ def load_rss_functions():
         "validate_screen_result", "validate_summary_result", "normalize_qa",
         "analyze_article_staged", "has_failed_categories", "attach_llm_meta",
         "get_llm_meta", "mark_analysis_provider", "build_failed_analysis", "build_prompt",
+        "InsufficientContentQAError", "build_filtered_analysis",
     }
-    selected = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+    selected = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names]
     assert {n.name for n in selected} == names
     ns = dict(Any=Any, Dict=Dict, List=List, Optional=Optional, dt=dt,
               finite_score=finite_score, validate_increment=validate_increment,

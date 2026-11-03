@@ -661,6 +661,10 @@ def _content_prompt_with_triage(screen_prompt: str, verdict: str) -> str:
     )
 
 
+class InsufficientContentQAError(ValueError):
+    """Staged content passed all other checks but has fewer than three QA items."""
+
+
 def validate_staged_content_result(analysis: Dict[str, Any], triage_verdict: str) -> Dict[str, Any]:
     validated = validate_screen_result(analysis)
     if triage_verdict == "keep" and validated["action"] != "ingest":
@@ -671,7 +675,7 @@ def validate_staged_content_result(analysis: Dict[str, Any], triage_verdict: str
         if parse_score(validated.get("score")) is None:
             raise ValueError("missing score")
         if len(normalize_qa(validated.get("qa") or [])) < 3:
-            raise ValueError("qa must contain at least 3 items")
+            raise InsufficientContentQAError("qa must contain at least 3 items")
     return validated
 
 
@@ -2139,6 +2143,23 @@ def analyze_article_staged(
             if attempt + 1 < validate_retries:
                 log(f"[LLM] content validation failed, retrying ({attempt + 1}/{validate_retries}): {exc}")
                 continue
+            if isinstance(exc, InsufficientContentQAError):
+                qa_count = len(normalize_qa(content_result.get("qa") or []))
+                reason = (
+                    f"内容 QA 校验重试已耗尽（{validate_retries} 次）："
+                    f"{exc}；最后输出 {qa_count} 组，本条转为 filtered，不再自动重试"
+                )
+                log(f"[LLM] {reason}")
+                return mark_analysis_provider(
+                    build_filtered_analysis(
+                        {**validate_screen_result(content_result), "action": "pass"},
+                        "终审过滤",
+                        reason,
+                        llm_request_count=request_count,
+                        **triage_meta,
+                    ),
+                    screen_provider,
+                )
             return mark_analysis_provider(
                 attach_llm_meta(build_failed_analysis(f"content: {exc}"), llm_request_count=request_count, **triage_meta),
                 screen_provider,
